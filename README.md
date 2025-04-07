@@ -13,7 +13,7 @@ The Tripo_3D Blender Plugin integrates Tripo's AI-powered 3D generation capabili
 - **Real-time Progress Tracking**: Monitor generation progress with a visual progress bar
 
 ### Advanced Options
-- **Model Versions**: Support for v1.3, v1.5, v2.0-20240919, AND v2.5-20250123
+- **Model Versions**: Support for v1.3, v1.4, v2.0, AND v2.5
 - **Texture Controls**:
   - Texture quality (standard/detailed)
   - Texture alignment (original image/geometry)
@@ -106,7 +106,9 @@ This plugin is distributed under the terms of the MIT license - see the LICENSE 
 
 - [Tripo 3D](https://tripo3d.ai) for the 3D generation API
 - [Poly Haven](https://polyhaven.com) for the 3D assets
-- We would like to extend our heartfelt thanks to our Discord channel member **Zeak6464** for his significant contributions to the plugin code and for assisting in the testing channel. Your support has been invaluable!
+- [blender-mcp](https://github.com/ahujasid/blender-mcp)** by [Siddharth Ahuja](https://github.com/ahujasid)
+-Special thanks to our Discord channel member **Zeak6464** for his significant contributions to the plugin code and for assisting in the testing channel. Your support has been invaluable!
+- Special thanks to **Siddharth Ahuja** for the blender-mcp project, which provided inspiring ideas for MCP + 3D.
 
 ## Version History
 
