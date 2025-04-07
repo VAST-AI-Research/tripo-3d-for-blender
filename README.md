@@ -1,8 +1,8 @@
-# Tripo_3D Blender Plugin
+# Tripo 3D Blender Plugin
 
 ## Overview
 
-The Tripo_3D Blender Plugin integrates Tripo's AI-powered 3D generation capabilities directly into Blender. Generate high-quality 3D models from text descriptions or images with advanced customization options.
+The Tripo 3D Blender Plugin integrates Tripo's AI-powered 3D generation capabilities directly into Blender. Generate high-quality 3D models from text descriptions or images with advanced customization options.
 
 ## Features
 
