@@ -152,26 +152,12 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 row.prop(context.scene, "negative_prompts", text="")
 
             row = box.row()
-            if (
-                not context.scene.enable_negative_prompts
-                and context.scene.text_prompts == ""
-            ) or (
-                (
-                    context.scene.negative_prompts == ""
-                    or context.scene.text_prompts == ""
-                )
-                and context.scene.enable_negative_prompts
-            ):
+            if not context.scene.text_prompts:
                 row.enabled = False
-                row.operator(
-                    "my_plugin.generate_text_model",
-                    text=f"Generate (cost:{calculate_text_to_model_price(scn)})",
-                )
-            else:
-                row.operator(
-                    "my_plugin.generate_text_model",
-                    text=f"Generate (cost:{calculate_text_to_model_price(scn)})",
-                )
+            row.operator(
+                "my_plugin.generate_text_model",
+                text=f"Generate (cost:{calculate_generation_price(scn, 'text2model')})",
+            )
             if context.scene.text_model_generating:
                 box.label(text="Task Generating...")
                 box.prop(
@@ -189,33 +175,7 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
             row.alignment = "CENTER"
             row.label(text="Image_to_Model")
 
-            if not scn.multiview_generate_mode:
-                row = box.row()
-                row.operator(
-                    "my_plugin.switch_image_mode", text="Switch to multiview mode"
-                )
-                row = box.row()
-                if scn.image_path == "----":
-                    split = row.split(factor=0.33)
-                    col = split.column(align=True)
-                    col = split.column(align=True)
-                    row = col.row()
-                    row.template_ID_preview(
-                        scn, "preview_image", open="my_plugin.load_image"
-                    )
-                    col = split.column(align=True)
-                else:
-                    row.template_ID_preview(
-                        scn, "preview_image", open="my_plugin.load_image"
-                    )
-                row = box.row()
-                row.label(text="Image Selected: ")
-                row.label(text=scn.image_path)
-                row = box.row()
-            elif (
-                scn.model_version == "v2.0-20240919"
-                or scn.model_version == "v2.5-20250123"
-            ) and scn.multiview_generate_mode:
+            if scn.model_version.startswith("v2.") and scn.multiview_generate_mode:
                 row = box.row()
                 row.operator(
                     "my_plugin.switch_image_mode", text="Switch to single image mode"
@@ -270,50 +230,34 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 )
 
                 row = box.row()
+                row.enabled = context.scene.front_image_path and \
+                              any([context.scene.left_image_path, \
+                              context.scene.back_image_path, \
+                              context.scene.right_image_path])
             else:
                 row = box.row()
                 row.operator(
-                    "my_plugin.switch_image_mode", text="Switch to single image mode"
+                    "my_plugin.switch_image_mode", text="Switch to multiview mode"
                 )
                 row = box.row()
-                _label_multiline(
-                    context=context,
-                    text="\nThe multi-view generation feature in versions 1.3 and 1.4 will soon be discontinued to make way for version 2.5. Please look forward to the amazing performance of version 2.5!\n",
-                    parent=box,
+                # if scn.image_path == "----":
+                #     split = row.split(factor=0.33)
+                #     col = split.column(align=True)
+                #     col = split.column(align=True)
+                #     row = col.row()
+                #     col = split.column(align=True)
+                row.template_ID_preview(
+                    scn, "preview_image", open="my_plugin.load_image"
                 )
                 row = box.row()
-
-            if (
-                (
-                    not (
-                        context.scene.model_version == "v2.0-20240919"
-                        or context.scene.model_version == "v2.5-20250123"
-                    )
-                    and scn.multiview_generate_mode
-                )
-                or (
-                    (context.scene.image_path == "----" and context.scene.preview_image is None)
-                    and not context.scene.multiview_generate_mode
-                )
-                or (
-                    context.scene.multiview_generate_mode
-                    and (
-                        (context.scene.left_image_path == "----" and context.scene.left_image is None)
-                        or (context.scene.front_image_path == "----" and context.scene.front_image is None)
-                        or (context.scene.back_image_path == "----" and context.scene.back_image is None)
-                    )
-                )
-            ):
-                row.enabled = False
-                row.operator(
-                    "my_plugin.generate_image_model",
-                    text=f"Generate (cost:{calculate_image_to_model_price(scn)})",
-                )
-            else:
-                row.operator(
-                    "my_plugin.generate_image_model",
-                    text=f"Generate (cost:{calculate_image_to_model_price(scn)})",
-                )
+                row.label(text="Image Selected: ")
+                row.label(text=scn.image_path)
+                row = box.row()
+                row.enabled = context.scene.image_path
+            row.operator(
+                "my_plugin.generate_image_model",
+                text=f"Generate (cost:{calculate_generation_price(scn, 'image2model')})",
+            )
             if context.scene.image_model_generating:
                 box.label(text="Task Generating...")
                 box.prop(
@@ -334,20 +278,18 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
             row = post_process_box.row()
             row.label(text="Model Version")
             row.prop(context.scene, "model_version", text="")
-            if (
-                scn.model_version == "v2.0-20240919"
-                or scn.model_version == "v2.5-20250123"
-            ):
+            if scn.model_version.startswith("v2."):
                 row = post_process_box.row()
                 row.prop(scn, "quad", text="Enable quad mesh output")
-                # row.enabled = False
-            row = post_process_box.row()
-            row.prop(scn, "use_custom_face_limit", text="Use custom face limit")
-            row = post_process_box.row()
-            row.prop(scn, "face_limit", text="Face Limit")
-            row.enabled = scn.use_custom_face_limit
-            row = post_process_box.row()
-            row.prop(scn, "style", text="Style")
+                row = post_process_box.row()
+                row.prop(scn, "use_custom_face_limit", text="Use custom face limit")
+                row = post_process_box.row()
+                row.prop(scn, "face_limit", text="Face Limit")
+                row.enabled = scn.use_custom_face_limit
+                row = post_process_box.row()
+                row.prop(scn, "style", text="Style")
+                if scn.multiview_generate_mode:
+                    row.enable = False
 
             row = post_process_box.row()
             row.prop(scn, "use_pose_control", text="Enable Pose Control")
@@ -375,21 +317,8 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 row = post_process_box.row()
                 row.prop(scn, "span_of_legs", text="Span of Two Legs")
 
-                # Generate final pose string
-                pose_string = f", {scn.pose_type}:"
-                pose_string += f"{scn.head_body_height_ratio}:"
-                pose_string += f"{scn.head_body_width_ratio}:"
-                pose_string += f"{scn.legs_body_height_ratio}:"
-                pose_string += f"{scn.arms_body_length_ratio}:"
-                pose_string += f"{scn.span_of_legs}"
-                # row = post_process_box.row()
-                # Display final pose string
-                # row.label(text=f"{pose_string}")
 
-            if (
-                scn.model_version == "v2.0-20240919"
-                or scn.model_version == "v2.5-20250123"
-            ):
+            if sc.model_version.startswith("v2."):
                 row = post_process_box.row()
                 row.prop(
                     scn,
@@ -415,10 +344,3 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                     row.prop(scn, "orientation", text="Orientation")
 
                     # layout.prop(scn, "blendermcp_port")
-
-def _label_multiline(context, text, parent):
-    chars = int(context.region.width / 11)  # 7 pix on 1 character
-    wrapper = textwrap.TextWrapper(width=chars)
-    text_lines = wrapper.wrap(text=text)
-    for text_line in text_lines:
-        parent.label(text=text_line)

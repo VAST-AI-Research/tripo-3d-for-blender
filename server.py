@@ -5,7 +5,7 @@ import traceback
 import requests
 import tempfile
 import os
-from .config import get_logger
+from .logger import get_logger
 
 class BlenderMCPServer:
     def __init__(self, host="localhost", port=9876):

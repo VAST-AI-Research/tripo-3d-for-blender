@@ -1,10 +1,132 @@
 import os
+import asyncio
 import tempfile
-import requests
-from functools import wraps
 import time
 import bpy
-from . import config
+from functools import wraps
+import sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(os.path.dirname(current_dir), "tripo-python-sdk"))
+
+from tripo3d import TripoClient, TripoAPIError, TaskStatus
+from .logger import get_logger
+
+
+async def receive_one(client, tid, context, isTextGenerating):
+    progress_tracker = ProgressTracker(context, isTextGenerating)
+    polling_interval = 2
+    try:
+        with progress_tracker:
+            while True:
+                task = await client.get_task(tid)
+                status = task.status
+                progress_value = float(task.progress)
+
+                progress_tracker.update_progress(
+                    progress_value, f"Task {status}: {progress_value}%"
+                )
+                scn = context.scene
+                task_status_array = scn.task_status_array
+
+                # Mark whether the task is found
+                task_found = False
+
+                for task_item in task_status_array:
+                    if task_item.task_id == tid:
+                        task_item.status = status
+                        task_found = True
+                        break
+
+                if not task_found:
+                    # If task not found, add a new task
+                    new_task = task_status_array.add()
+                    new_task.task_id = tid
+                    new_task.status = status
+
+                if status in [TaskStatus.SUCCESS]:
+                    Update_User_balance(context.scene.api_key, context)
+                    return task
+                elif status == TaskStatus.FAILED:
+                    raise TripoAPIError(
+                        code="TASK_FAILED", 
+                        message=f"Task failed"
+                    )
+                elif status == TaskStatus.BANNED:
+                    raise TripoAPIError(
+                        code="TASK_BANNED", 
+                        message=f"Task banned"
+                    )
+                elif status not in [TaskStatus.QUEUED, TaskStatus.RUNNING]:
+                    raise TripoAPIError(
+                        code="UNKNOWN_STATUS", 
+                        message=f"Unknown task status: {status}"
+                    )
+                if hasattr(task, 'running_left_time') and task.running_left_time is not None:
+                    # Use 80% of the estimated remaining time as the next polling interval
+                    polling_interval = max(2, task.running_left_time * 0.5)
+                else:
+                    polling_interval = polling_interval * 2
+                await asyncio.sleep(polling_interval)
+
+    except Exception as e:
+        get_logger().error(f"Error in receive_one: {str(e)}")
+        raise
+
+
+def show_error_dialog(error_message):
+    def draw(self, context):
+        self.layout.label(text=error_message)
+
+    def show_message():
+        bpy.context.window_manager.popup_menu(draw, title="Error", icon="ERROR")
+
+    # Schedule the dialog to be shown in the main thread
+    bpy.app.timers.register(show_message, first_interval=0.1)
+
+
+@retry_with_backoff
+def Update_User_balance(api_key, context):
+    try:
+        async with TripoClient(api_key=api_key) as client:
+            balance = await client.get_balance()
+        context.scene.user_balance = f"{balance.balance:.2f}"
+    except Exception as e:
+        get_logger().error(f"Error updating user balance: {str(e)}")
+
+
+async def download(task_id, context, task_type=None):
+    try:
+        async with TripoClient(api_key=context.scene.api_key) as client:
+            task_info = await receive_one(client, task_id, context, task_type == 'text2model')
+            if task_type is not None:
+                if task_type == 'text2model':
+                    context.scene.text_is_importing_model = True
+                else:
+                    context.scene.image_is_importing_model = True
+            with tempfile.TemporaryDirectory() as temp_dir:
+                result = await client.download_task_models(task=task_info, output_dir=temp_dir)
+                model_file = next(iter(downloaded.values()))
+                file_extension = os.path.splitext(model_file)[1].lower()
+                if temp_filename.endswith('fbx'):
+                    bpy.ops.import_scene.fbx(filepath=temp_filename)
+                else:
+                    bpy.ops.import_scene.gltf(filepath=temp_filename, merge_vertices=True)
+                # Set the viewport shading to material preview
+                for area in bpy.context.screen.areas:
+                    if area.type == 'VIEW_3D':
+                        for space in area.spaces:
+                            if space.type == 'VIEW_3D':
+                                space.shading.type = 'MATERIAL'
+    except Exception as e:
+        get_logger().error(f"Error downloading model: {str(e)}")
+        show_error_dialog(f"Error downloading model: {str(e)}")
+    finally:
+        if task_type is not None:
+            if task_type == 'text2model':
+                context.scene.text_is_importing_model = False
+            else:
+                context.scene.image_is_importing_model = False
+
 
 def retry_with_backoff(func):
     """
@@ -18,7 +140,7 @@ def retry_with_backoff(func):
     """
     @wraps(func)
     def wrapper(*args, **kwargs):
-        max_retries = config.TripoConfig.MAX_RETRIES
+        max_retries = 3
         retry_delay = 1  # Initial delay of 1 second
 
         for attempt in range(max_retries):
@@ -28,101 +150,11 @@ def retry_with_backoff(func):
                 if attempt == max_retries - 1:  # Last attempt
                     raise  # Re-raise the last error
 
-                config.logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
+                config.get_logger().warning(f"Attempt {attempt + 1} failed: {str(e)}")
                 time.sleep(retry_delay)
                 retry_delay *= 2  # Exponential backoff
 
     return wrapper
-
-
-@retry_with_backoff
-def fetch_data(url, headers_tuple, method="GET", data=None, files=None):
-    """
-    General function for retrieving data from API
-
-    Args:
-        url: API endpoint URL
-        headers_tuple: Request headers in format ("Key1", "Value1", "Key2", "Value2", ...)
-        method: HTTP method (GET/POST)
-        data: POST request data
-        files: File upload data
-
-    Returns:
-        Parsed JSON response
-    """
-    headers = dict([headers_tuple[i:i+2] for i in range(0, len(headers_tuple), 2)])
-    try:
-        if method == "GET":
-            response = requests.get(url, headers=headers)
-        elif method == "POST":
-            if files:
-                response = requests.post(url, headers=headers, files=files)
-            elif data:
-                response = requests.post(url, headers=headers, json=data)
-            else:
-                response = requests.post(url, headers=headers)
-
-        if response.status_code == 200:
-            return response.json()
-        else:
-            config.logger.error(f"Failed to get data: {response.status_code}")
-            raise Exception(f"API error: Received response code {response.status_code}")
-    except requests.RequestException as e:
-        config.logger.error(f"Network error: {str(e)}")
-        raise
-
-
-def upload_file(url, headers_tuple, file_path):
-    """
-    Upload a file to Tripo API
-
-    Args:
-        url: Upload endpoint URL
-        headers_tuple: Authorization headers
-        file_path: Path to the file to upload
-
-    Returns:
-        dict: API response containing file_token
-    """
-    headers = dict([headers_tuple[i:i+2] for i in range(0, len(headers_tuple), 2)])
-
-    # Verify file existence
-    if not os.path.exists(file_path):
-        raise ValueError(f"File not found: {file_path}")
-
-    # Verify file size
-    file_size = os.path.getsize(file_path)
-    if file_size > config.TripoConfig.MAX_FILE_SIZE:
-        raise ValueError(
-            f"File size ({file_size} bytes) exceeds maximum allowed size ({config.TripoConfig.MAX_FILE_SIZE} bytes)"
-        )
-
-    # Get file extension and validate type
-    file_ext = os.path.splitext(file_path)[1][1:].lower()
-    if file_ext not in config.TripoConfig.SUPPORTED_FILE_TYPES:
-        raise ValueError(
-            f"Unsupported file type: {file_ext}. Supported types: {', '.join(config.TripoConfig.SUPPORTED_FILE_TYPES.keys())}"
-        )
-
-    try:
-        with open(file_path, "rb") as f:
-            files = {
-                "file": (
-                    os.path.basename(file_path),
-                    f,
-                    config.TripoConfig.SUPPORTED_FILE_TYPES[file_ext],
-                )
-            }
-            response = requests.post(url, headers=headers, files=files)
-
-        if response.status_code == 200:
-            return response.json()
-        else:
-            config.logger.error(f"File upload failed: {response.status_code}")
-            raise Exception(f"File upload error: Received response code {response.status_code}")
-    except requests.RequestException as e:
-        config.logger.error(f"Failed to upload file: {str(e)}")
-        raise Exception(f"File upload network error: {str(e)}")
 
 
 class ProgressTracker:
@@ -162,221 +194,38 @@ class ProgressTracker:
         else:
             self.context.scene.image_generating_percentage = progress
 
+        if status and hasattr(self.context.scene, "generation_status"):
+            self.context.scene.generation_status = status
 
-def validate_image_file(file_path):
+        if hasattr(self.context.scene, "generation_elapsed_time"):
+            elapsed_time = time.time() - self.start_time
+            self.context.scene.generation_elapsed_time = elapsed_time
+
+
+def calculate_generation_price(scene, task_type):
     """
-    Validate if an image file is valid
-
-    Args:
-        file_path: Image file path
-
-    Returns:
-        tuple: (is_valid, error_message)
-    """
-    try:
-        # Check if file exists
-        if not os.path.exists(file_path):
-            return False, "File does not exist"
-
-        # Check file size
-        if os.path.getsize(file_path) > config.TripoConfig.MAX_FILE_SIZE:
-            return (
-                False,
-                f"File size exceeds {config.TripoConfig.MAX_FILE_SIZE / 1024 / 1024}MB limit",
-            )
-
-        # Check file type
-        ext = os.path.splitext(file_path)[1][1:].lower()
-        if ext not in config.TripoConfig.SUPPORTED_FILE_TYPES:
-            return (
-                False,
-                f"Unsupported file type. Supported: {', '.join(config.TripoConfig.SUPPORTED_FILE_TYPES.keys())}",
-            )
-
-        return True, ""
-
-    except Exception as e:
-        return False, f"Error validating file: {str(e)}"
-
-
-class TaskFactory:
-    """
-    Factory class for creating various task request data
-    """
-    @staticmethod
-    def create_text_task_data(context, use_custom_face_limit=False):
-        """
-        Create request data for text-to-model task
-
-        Args:
-            context: Blender context
-            use_custom_face_limit: Whether to use custom face count limit
-
-        Returns:
-            dict: Task request data
-        """
-        data = {"type": "text_to_model", "model_version": context.scene.model_version}
-
-        # Handle text prompts
-        data["prompt"] = context.scene.text_prompts
-
-        # Handle negative prompts
-        if context.scene.enable_negative_prompts:
-            data["negative_prompt"] = context.scene.negative_prompts
-
-        # Handle V2.0 specific parameters
-        if (
-            context.scene.model_version == "v2.0-20240919"
-        ):
-            data.update(
-                {
-                    "quad": context.scene.quad,
-                }
-            )
-
-            # Add face count limit
-            if use_custom_face_limit and context.scene.face_number > 0:
-                data["face_limit"] = int(context.scene.face_number)
-
-        return data
-
-    @staticmethod
-    def create_image_task_data(context, file_token, use_custom_face_limit=False):
-        """
-        Create request data for image-to-model task
-
-        Args:
-            context: Blender context
-            file_token: File token of the uploaded image
-            use_custom_face_limit: Whether to use custom face count limit
-
-        Returns:
-            dict: Task request data
-        """
-        data = {
-            "type": "image_to_model",
-            "model_version": context.scene.model_version,
-            "file": {"type": "jpg", "file_token": file_token},
-        }
-
-        # Handle V2.0 specific parameters
-        if (
-            context.scene.model_version == "v2.0-20240919"
-        ):
-            # Add V2.0 specific parameters
-            data.update(
-                {
-                    "quad": context.scene.quad,
-                }
-            )
-
-            # Add face count limit
-            if use_custom_face_limit and context.scene.face_number > 0:
-                data["face_limit"] = int(context.scene.face_number)
-
-        return data
-
-    @staticmethod
-    def create_multiview_task_data(context, file_tokens, use_custom_face_limit=False):
-        """
-        Create request data for multiview-to-model task
-
-        Args:
-            context: Blender context
-            file_tokens: List of file tokens for uploaded images
-            use_custom_face_limit: Whether to use custom face count limit
-
-        Returns:
-            dict: Task request data
-        """
-        data = {
-            "type": "multiview_to_model",
-            "model_version": context.scene.model_version,
-            "files": [
-                {"type": "jpg", "file_token": file_tokens[0]},  # Front
-                {"type": "jpg", "file_token": file_tokens[1]},  # Left
-                {"type": "jpg", "file_token": file_tokens[2]},  # Back
-                {},  # Placeholder
-            ],
-            "mode": "LEFT",
-        }
-
-        # Handle V2.0 specific parameters
-        if (
-            context.scene.model_version == "v2.0-20240919"
-        ):
-            data.update(
-                {
-                    "quad": context.scene.quad,
-                }
-            )
-
-            # Add face count limit
-            if use_custom_face_limit and context.scene.face_number > 0:
-                data["face_limit"] = int(context.scene.face_number)
-
-        return data
-
-
-def calculate_text_to_model_price(scene):
-    """
-    Calculate the price for a text-to-model task
+    Calculate the price for a generation task
 
     Args:
         scene: Blender scene
 
     Returns:
-        int: Price (in points)
+        float: The price for the task
     """
-    price = 0
+    price = 10
+    if task_type != 'text2model':
+        price += 10
 
-    # Get model version
-    model_version = scene.model_version
-
-    # Determine base price
-    if model_version == "v2.0-20240919":
-        price = 20  # V2.0 base price
-
-        # Quad additional fee
+    # 获取模型版本
+    if scene.model_version.startswith("v2."):
+        if scene.texture:
+            price += 10
+        if scene.texture_quality == "detailed":
+            price += 10
         if scene.quad:
             price += 5
+        if scene.style and not scene.multiview_generate_mode:
+            price += 5
     else:
-        price = 10  # V1.0 base price
-
+        price += 10
     return price
-
-
-def calculate_image_to_model_price(scene):
-    """
-    Calculate the price for an image-to-model task
-
-    Args:
-        scene: Blender scene
-
-    Returns:
-        int: Price (in points)
-    """
-    price = 0
-
-    # Get model version
-    model_version = scene.model_version
-
-    # Determine base price
-    if model_version == "v2.0-20240919":
-        # Single view or multiview
-        if scene.multiview_generate_mode:
-            price = 40  # Multiview base price
-        else:
-            price = 30  # Single view base price
-
-        # Quad additional fee
-        if scene.quad:
-            price += 5
-    else:
-        # V1.0 price
-        if scene.multiview_generate_mode:
-            price = 30  # Multiview
-        else:
-            price = 20  # Single view
-
-    return price 

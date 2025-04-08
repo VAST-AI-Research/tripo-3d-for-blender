@@ -26,6 +26,20 @@ from . import server
 from . import operators
 
 
+class TripoSettings(bpy.types.PropertyGroup):
+    api_key: bpy.props.StringProperty(
+        name="API Key",
+        description="API Key for Tripo 3D",
+        default="",
+        subtype="PASSWORD",
+    )
+    api_key_confirmed: bpy.props.BoolProperty(name="API Key Confirmed", default=False)
+    user_balance: bpy.props.StringProperty(name="User Balance", default="----")
+
+class TaskStatus(bpy.types.PropertyGroup):
+    task_id: bpy.props.StringProperty(name="Task ID", default="")
+    status: bpy.props.StringProperty(name="Status", default="")
+
 REGISTERED_PROPERTIES = []
 # Property registration function
 def register_custom_properties():
@@ -60,7 +74,7 @@ def register_custom_properties():
         name="Text Prompts with pose", default=""
     )
     bpy.types.Scene.user_balance = bpy.props.StringProperty(
-        name="user_balance", default="----"
+        name="user_balance", default=""
     )
     bpy.types.Scene.enable_negative_prompts = bpy.props.BoolProperty(
         name="enable_negative_prompts", default=False
@@ -180,13 +194,21 @@ def register_custom_properties():
         name="Style",
         description="Defines the artistic style or transformation to be applied to the 3D model, altering its appearance according to preset options. Omit this option to keep the original style and appearance.",
         items=[
-            ("original", "Original style", "Keep the original style and appearance"),
+            (
+                "original",
+                "Original style",
+                "Keep the original style and appearance"
+            ),
             (
                 "person:person2cartoon",
                 "Cartoon",
                 "Transforms the model into a cartoon-style version of the input character.",
             ),
-            ("object:clay", "Clay", "Applies a clay-like appearance to the object."),
+            (
+                "object:clay",
+                "Clay",
+                "Applies a clay-like appearance to the object."
+            ),
             (
                 "object:steampunk",
                 "Steampunk",
@@ -197,7 +219,11 @@ def register_custom_properties():
                 "Venom",
                 "Applies a venom-like, dark, and glossy appearance to the animal model, BTW, very horrible.",
             ),
-            ("object:barbie", "Barbie", "Applies a barbie style to the object."),
+            (
+                "object:barbie",
+                "Barbie",
+                "Applies a barbie style to the object."
+            ),
             (
                 "object:christmas",
                 "Christmas",
@@ -224,19 +250,19 @@ def register_custom_properties():
 
     # File filter (only show these file types in the file selection dialog)
     bpy.types.Scene.image_path = bpy.props.StringProperty(
-        name="image_path", default="----"
+        name="image_path", default=""
     )
     bpy.types.Scene.front_image_path = bpy.props.StringProperty(
-        name="front_image_path", default="----"
+        name="front_image_path", default=""
     )
     bpy.types.Scene.left_image_path = bpy.props.StringProperty(
-        name="left_image_path", default="----"
+        name="left_image_path", default=""
     )
     bpy.types.Scene.back_image_path = bpy.props.StringProperty(
-        name="back_image_path", default="----"
+        name="back_image_path", default=""
     )
     bpy.types.Scene.right_image_path = bpy.props.StringProperty(
-        name="right_image_path", default="----"
+        name="right_image_path", default=""
     )
     bpy.types.Scene.filter_glob = bpy.props.StringProperty(
         default="*.png;*.jpg;*.jpeg;*.bmp;*.gif", options={"HIDDEN"}
@@ -367,7 +393,7 @@ classes = [
     operators.GenerateImageModelOperator,
     operators.MyModelVersionSelector,
     config.TripoSettings,
-    models.TaskStatus,
+    TaskStatus,
     # UI panels
     ui.TRIPOD_PT_TripoPluginManagerPanel,
     ui.TRIPOD_PT_TripoPluginMainPanel,
@@ -420,9 +446,6 @@ def unregister():
     # Unregister classes
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-
-    # Unregister task status property group
-    bpy.utils.unregister_class(models.TaskStatus)
 
     global REGISTERED_PROPERTIES
     for prop_name in REGISTERED_PROPERTIES:

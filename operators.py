@@ -2,8 +2,12 @@ import bpy
 import asyncio
 import os
 import tempfile
-from .api import search_task, manager_search_task, show_error_dialog, Update_User_balance, TripoValidationError
-from .models import TaskFactory
+import sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(os.path.dirname(current_dir), "tripo-python-sdk"))
+
+from tripo3d import TripoClient
+from .utils import Update_User_balance, download
 
 
 class BLENDERMCP_OT_StartServer(bpy.types.Operator):
@@ -25,8 +29,6 @@ class BLENDERMCP_OT_StartServer(bpy.types.Operator):
         bpy.blendermcp_server.start()
         context.scene.blendermcp_server_running = True
 
-        # Notify user
-        self.report({"INFO"}, f"MCP Server started on port {port}")
         return {"FINISHED"}
 
 
@@ -37,13 +39,11 @@ class BLENDERMCP_OT_StopServer(bpy.types.Operator):
 
     def execute(self, context):
         # Stop server
-        if hasattr(bpy, "blendermcp_server") and bpy.blendermcp_server is not None:
+        if hasattr(bpy, "blendermcp_server") and bpy.blendermcp_server:
             bpy.blendermcp_server.stop()
             bpy.blendermcp_server = None
-            context.scene.blendermcp_server_running = False
-
-            # Notify user
-            self.report({"INFO"}, "MCP Server stopped")
+            del bpy.types.blendermcp_server
+        context.scene.blendermcp_server_running = False
 
         return {"FINISHED"}
 
@@ -60,14 +60,7 @@ class DownloadTaskOperator(bpy.types.Operator):
             self.report({"ERROR"}, "Task ID is empty")
             return {"CANCELLED"}
 
-        # Check if API key is configured
-        if not context.scene.api_key:
-            self.report({"ERROR"}, "API key not configured")
-            return {"CANCELLED"}
-
-        # Asynchronously execute task search
-        asyncio.run(manager_search_task(self.task_id, context))
-
+        asyncio.create_task(download(self.task_id, context))
         return {"FINISHED"}
 
 
@@ -78,24 +71,14 @@ class ResetPoseSettings(bpy.types.Operator):
 
     def execute(self, context):
         # Reset all parameters to default values
-        scn = context.scene
-        scn.text_prompts = ""
-        scn.negative_prompts = ""
-        scn.enable_negative_prompts = False
-        scn.multiview_generate_mode = False
-        scn.image_path = "----"
-        scn.left_image_path = "----"
-        scn.front_image_path = "----"
-        scn.back_image_path = "----"
-
-        self.report({"INFO"}, "Settings reset to default values")
+        scene = bpy.context.scene
+        scene.pose_type = "T-Pose"
+        scene.head_body_height_ratio = 1.0
+        scene.head_body_width_ratio = 1.0
+        scene.legs_body_height_ratio = 1.0
+        scene.arms_body_length_ratio = 1.0
+        scene.span_of_legs = 9.0
         return {"FINISHED"}
-
-
-class MyModelVersionSelector(bpy.types.Operator):
-    bl_idname = "object.my_model_version_selector"
-    bl_label = "Select Model Version"
-    bl_description = "Select a version of the model to load"
 
 
 class ShowErrorDialog(bpy.types.Operator):
@@ -121,14 +104,13 @@ class ConfirmApiKeyOperator(bpy.types.Operator):
     bl_label = "Confirm API Key"
 
     def execute(self, context):
-        # Get API key
-        api_key = context.scene.api_key
-
-        # Check if API key is empty
-        if not api_key:
-            self.report({"ERROR"}, "API key cannot be empty")
+        scn = context.scene
+        if not scn.api_key.startswith("tsk_"):
+            bpy.ops.error.show_dialog(
+                "INVOKE_DEFAULT",
+                error_message="Invalid API Key! API Key must start with 'tsk_'.",
+            )
             return {"CANCELLED"}
-
         try:
             # Test API key
             Update_User_balance(api_key, context)
@@ -163,13 +145,6 @@ class SwitchImageModeOperator(bpy.types.Operator):
     def execute(self, context):
         # Switch mode
         context.scene.multiview_generate_mode = not context.scene.multiview_generate_mode
-
-        # Display notification based on mode
-        if context.scene.multiview_generate_mode:
-            self.report({"INFO"}, "Switched to multiview generation mode")
-        else:
-            self.report({"INFO"}, "Switched to single image generation mode")
-
         return {"FINISHED"}
 
 
@@ -179,35 +154,80 @@ class GenerateTextModelOperator(bpy.types.Operator):
 
     def execute(self, context):
         try:
-            # Validate input
-            if not context.scene.text_prompts:
-                self.report({"ERROR"}, "Text prompt cannot be empty")
-                return {"CANCELLED"}
+            async with TripoClient(api_key=context.scene.api_key) as client:
+                prompt = context.scene.text_prompts
+                if context.scene.use_pose_control:
+                    prompt += (
+                        f", {context.scene.pose_type}:"
+                        f"{context.scene.head_body_height_ratio}:"
+                        f"{context.scene.head_body_width_ratio}:"
+                        f"{context.scene.legs_body_height_ratio}:"
+                        f"{context.scene.arms_body_length_ratio}:"
+                        f"{context.scene.span_of_legs}"
+                    )
+                task_id = await client.text_to_model(
+                    prompt=prompt,
+                    negative_prompt=context.scene.negative_prompts,
+                    model_version=context.scene.model_version,
+                    face_limit=context.scene.face_limit if context.scene.use_custom_face_limit else None,
+                    texture=context.scene.texture,
+                    pbr=context.scene.pbr,
+                    texture_quality=context.scene.texture_quality,
+                    style=context.scene.style if context.scene.style != "original" else None,
+                    auto_size=context.scene.auto_size,
+                    quad=context.scene.quad
+                )
+                download(task_id, context, "text2model")
 
-            if context.scene.enable_negative_prompts and not context.scene.negative_prompts:
-                self.report({"ERROR"}, "Negative prompt cannot be empty when enabled")
-                return {"CANCELLED"}
+            return {"FINISHED"}
 
-            # Get task data
-            task_data = TaskFactory.create_text_task_data(context)
+        except Exception as e:
+            self.report({"ERROR"}, f"Failed to generate model: {str(e)}")
+            return {"CANCELLED"}
 
-            # Send API request
-            from .api import fetch_data
-            headers_tuple = ("Authorization", f"Bearer {context.scene.api_key}")
-            response = fetch_data(
-                url="https://api.tripo3d.ai/v2/openapi/task",
-                headers_tuple=headers_tuple,
-                method="POST",
-                data=task_data
-            )
 
-            # Get task ID and start polling
-            task_id = response["data"]["task_id"]
+class GenerateImageModelOperator(bpy.types.Operator):
+    bl_idname = "my_plugin.generate_image_model"
+    bl_label = "Generate Image Model"
 
-            # Asynchronously execute task search
-            asyncio.run(search_task(task_id, context, True))
-
-            self.report({"INFO"}, f"Task created with ID: {task_id}")
+    def execute(self, context):
+        try:
+            async with TripoClient(api_key=context.scene.api_key) as client:
+                # Multiview mode
+                if context.scene.multiview_generate_mode:
+                    image_paths = [
+                        context.scene.front_image_path,
+                        context.scene.left_image_path,
+                        context.scene.back_image_path,
+                        context.scene.right_image_path
+                    ]
+                    for i in range(len(image_paths)):
+                        if not image_paths[i]:
+                            image_paths[i] = None
+                    task_id = await client.multiview_to_model(
+                        images=images,
+                        model_version=context.scene.model_version,
+                        face_limit=context.scene.face_limit if context.scene.use_custom_face_limit else None,
+                        texture=context.scene.texture,
+                        pbr=context.scene.pbr,
+                        texture_quality=context.scene.texture_quality,
+                        style=context.scene.style if context.scene.style != "original" else None,
+                        auto_size=context.scene.auto_size,
+                        quad=context.scene.quad
+                    )
+                else:
+                    task_id = await client.image_to_model(
+                        image=context.scene.image_path,
+                        model_version=context.scene.model_version,
+                        face_limit=context.scene.face_limit if context.scene.use_custom_face_limit else None,
+                        texture=context.scene.texture,
+                        pbr=context.scene.pbr,
+                        texture_quality=context.scene.texture_quality,
+                        style=context.scene.style if context.scene.style != "original" else None,
+                        auto_size=context.scene.auto_size,
+                        quad=context.scene.quad
+                    )
+                download(task_id, context, "image2model")
             return {"FINISHED"}
 
         except Exception as e:
@@ -244,7 +264,6 @@ class LoadImageOperator(bpy.types.Operator):
         context.window_manager.fileselect_add(self)
         return {"RUNNING_MODAL"}
 
-
 class LoadLeftImageOperator(LoadImageOperator):
     bl_idname = "my_plugin.load_left_image"
 
@@ -256,112 +275,3 @@ class LoadFrontImageOperator(LoadImageOperator):
 
 class LoadBackImageOperator(LoadImageOperator):
     bl_idname = "my_plugin.load_back_image"
-
-class GenerateImageModelOperator(bpy.types.Operator):
-    bl_idname = "my_plugin.generate_image_model"
-    bl_label = "Generate Image Model"
-
-    def execute(self, context):
-        try:
-            # Validate API key
-            if not context.scene.api_key:
-                self.report({"ERROR"}, "API key not configured")
-                return {"CANCELLED"}
-
-            headers_tuple = ("Authorization", f"Bearer {context.scene.api_key}")
-
-            # Multiview mode
-            if context.scene.multiview_generate_mode:
-                # Verify all necessary images are loaded
-                required_images = [
-                    ("front", context.scene.front_image_path),
-                    ("left", context.scene.left_image_path),
-                    ("back", context.scene.back_image_path)
-                ]
-
-                for name, path in required_images:
-                    if path == "----" or not os.path.exists(path):
-                        self.report({"ERROR"}, f"{name.capitalize()} image not loaded")
-                        return {"CANCELLED"}
-
-                # Upload all images and get tokens
-                from .api import upload_file
-                tokens = {}
-
-                for name, path in required_images:
-                    try:
-                        response = upload_file(
-                            url="https://api.tripo3d.ai/v2/openapi/upload",
-                            headers_tuple=headers_tuple,
-                            file_path=path
-                        )
-                        tokens[f"{name}_token"] = response["data"]["token"]
-                    except Exception as e:
-                        self.report({"ERROR"}, f"Failed to upload {name} image: {str(e)}")
-                        return {"CANCELLED"}
-
-                # Create task data
-                task_data = {
-                    "task_type": "multiview_to_model",
-                    "model_version": context.scene.model_version,
-                    "front_token": tokens["front_token"],
-                    "left_token": tokens["left_token"],
-                    "back_token": tokens["back_token"]
-                }
-
-                # Quad output option
-                if context.scene.model_version in ["v2.0-20240919", "v2.5-20250123"] and context.scene.quad:
-                    task_data["ext"] = {"quad": True}
-
-            # Single image mode
-            else:
-                # Verify image is loaded
-                if context.scene.image_path == "----" or not os.path.exists(context.scene.image_path):
-                    self.report({"ERROR"}, "No image loaded")
-                    return {"CANCELLED"}
-
-                # Upload image and get token
-                from .api import upload_file
-                try:
-                    response = upload_file(
-                        url="https://api.tripo3d.ai/v2/openapi/upload",
-                        headers_tuple=headers_tuple,
-                        file_path=context.scene.image_path
-                    )
-                    image_token = response["data"]["token"]
-                except Exception as e:
-                    self.report({"ERROR"}, f"Failed to upload image: {str(e)}")
-                    return {"CANCELLED"}
-
-                # Create task data
-                task_data = {
-                    "task_type": "image_to_model",
-                    "model_version": context.scene.model_version,
-                    "image_token": image_token
-                }
-
-                # Quad output option
-                if context.scene.model_version in ["v2.0-20240919", "v2.5-20250123"] and context.scene.quad:
-                    task_data["ext"] = {"quad": True}
-
-            # Send API request
-            from .api import fetch_data
-            response = fetch_data(
-                url="https://api.tripo3d.ai/v2/openapi/task",
-                headers_tuple=headers_tuple,
-                method="POST",
-                data=task_data
-            )
-
-            # Get task ID and start polling
-            task_id = response["data"]["task_id"]
-
-            # Asynchronously execute task search
-            asyncio.run(search_task(task_id, context, False))
-
-            self.report({"INFO"}, f"Task created with ID: {task_id}")
-            return {"FINISHED"}
-
-        except Exception as e:
-            self.report({"ERROR"}, f"Failed to generate model: {str(e)}")
-            return {"CANCELLED"}
