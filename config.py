@@ -3,8 +3,11 @@ import os
 import logging
 from functools import lru_cache
 
-
-def setup_logger():
+logger = None
+def get_logger():
+    global logger
+    if logger is not None:
+        return logger
     logger = logging.getLogger("tripo_addon")
     logger.setLevel(logging.INFO)
 
@@ -41,11 +44,7 @@ def setup_logger():
         ch.setFormatter(formatter)
         logger.addHandler(ch)
         print("Warning: Could not create log file. Logging to console only.")
-
     return logger
-
-
-logger = setup_logger()
 
 
 class TripoConfig:
@@ -119,4 +118,4 @@ class TripoSettings(bpy.types.PropertyGroup):
         subtype="PASSWORD",
     )
     api_key_confirmed: bpy.props.BoolProperty(name="API Key Confirmed", default=False)
-    user_balance: bpy.props.StringProperty(name="User Balance", default="----") 
+    user_balance: bpy.props.StringProperty(name="User Balance", default="----")

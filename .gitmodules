@@ -1,0 +1,3 @@
+[submodule "tripo-python-sdk"]
+	path = tripo-python-sdk
+	url = git@github.com:VAST-AI-Research/tripo-python-sdk.git

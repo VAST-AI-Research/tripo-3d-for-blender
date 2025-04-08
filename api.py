@@ -6,7 +6,7 @@ import logging
 import time
 from functools import wraps
 import bpy
-from .config import TripoConfig, logger
+from .config import TripoConfig, get_logger
 
 
 def retry_with_backoff(func):
@@ -22,7 +22,7 @@ def retry_with_backoff(func):
                 if attempt == max_retries - 1:  # Last attempt
                     raise  # Re-raise the last error
 
-                logger.warning(f"Attempt {attempt + 1} failed: {str(e)}")
+                get_logger().warning(f"Attempt {attempt + 1} failed: {str(e)}")
                 time.sleep(retry_delay)
                 retry_delay *= 2  # Exponential backoff
 

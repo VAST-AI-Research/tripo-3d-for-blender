@@ -5,8 +5,7 @@ import traceback
 import requests
 import tempfile
 import os
-import logging
-from .config import logger
+from .config import get_logger
 
 class BlenderMCPServer:
     def __init__(self, host="localhost", port=9876):
@@ -29,9 +28,9 @@ class BlenderMCPServer:
             self.socket.setblocking(False)
             # Register the timer
             bpy.app.timers.register(self._process_server, persistent=True)
-            print(f"BlenderMCP server started on {self.host}:{self.port}")
+            get_logger().info(f"BlenderMCP server started on {self.host}:{self.port}")
         except Exception as e:
-            print(f"Failed to start server: {str(e)}")
+            get_logger().exception(f"Failed to start server: {str(e)}")
             self.stop()
 
     def stop(self):
@@ -45,7 +44,7 @@ class BlenderMCPServer:
             self.client.close()
         self.socket = None
         self.client = None
-        print("BlenderMCP server stopped")
+        get_logger().info("BlenderMCP server stopped")
 
     def _process_server(self):
         """Timer callback to process server operations"""
@@ -58,11 +57,11 @@ class BlenderMCPServer:
                 try:
                     self.client, address = self.socket.accept()
                     self.client.setblocking(False)
-                    print(f"Connected to client: {address}")
+                    get_logger().info(f"Connected to client: {address}")
                 except BlockingIOError:
                     pass  # No connection waiting
                 except Exception as e:
-                    print(f"Error accepting connection: {str(e)}")
+                    get_logger().exception(f"Error accepting connection: {str(e)}")
 
             # Process existing connection
             if self.client:
@@ -86,27 +85,27 @@ class BlenderMCPServer:
                                 pass
                         else:
                             # Connection closed by client
-                            print("Client disconnected")
+                            get_logger().warn("Client disconnected")
                             self.client.close()
                             self.client = None
                             self.buffer = b""
                     except BlockingIOError:
                         pass  # No data available
                     except Exception as e:
-                        print(f"Error receiving data: {str(e)}")
+                        get_logger().exeption(f"Error receiving data: {str(e)}")
                         self.client.close()
                         self.client = None
                         self.buffer = b""
 
                 except Exception as e:
-                    print(f"Error with client: {str(e)}")
+                    get_logger().exeption(f"Error with client: {str(e)}")
                     if self.client:
                         self.client.close()
                         self.client = None
                     self.buffer = b""
 
         except Exception as e:
-            print(f"Server error: {str(e)}")
+            get_logger().exeption(f"Server error: {str(e)}")
 
         return 0.1  # Continue timer with 0.1 second interval
 
@@ -128,7 +127,7 @@ class BlenderMCPServer:
                 return self._execute_command_internal(command)
 
         except Exception as e:
-            print(f"Error executing command: {str(e)}")
+            get_logger().exception(f"Error executing command: {str(e)}")
 
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
@@ -172,12 +171,12 @@ class BlenderMCPServer:
         handler = handlers.get(cmd_type)
         if handler:
             try:
-                print(f"Executing handler for {cmd_type}")
+                get_logger().info(f"Executing handler for {cmd_type}")
                 result = handler(**params)
-                print(f"Handler execution complete")
+                get_logger().info(f"Handler execution complete")
                 return {"status": "success", "result": result}
             except Exception as e:
-                print(f"Error in handler: {str(e)}")
+                get_logger().exception(f"Error in handler: {str(e)}")
                 traceback.print_exc()
                 return {"status": "error", "message": str(e)}
         else:
@@ -192,7 +191,7 @@ class BlenderMCPServer:
         # Ensure we're in object mode before import
         if bpy.context.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
-            
+
         bpy.ops.object.select_all(action="DESELECT")
         bpy.ops.import_scene.gltf(filepath=temp_file.name)
         imported_objects = bpy.context.selected_objects
@@ -203,7 +202,7 @@ class BlenderMCPServer:
             obj.rotation_mode = 'XYZ'
             # Then rotate to face +Y direction
             obj.rotation_euler[2] = obj.rotation_euler[2] + 1.5708  # 90 degrees in radians
-            
+
             # Calculate bounding box dimensions
             bbox_dimensions = [
                 dim * scale for dim, scale in zip(obj.dimensions, obj.scale)
@@ -239,7 +238,7 @@ class BlenderMCPServer:
     def get_scene_info(self):
         """Get information about the current Blender scene"""
         try:
-            print("Getting scene info...")
+            get_logger().info("Getting scene info...")
             # Simplify the scene info to reduce data size
             scene_info = {
                 "name": bpy.context.scene.name,
@@ -265,10 +264,10 @@ class BlenderMCPServer:
                 }
                 scene_info["objects"].append(obj_info)
 
-            print(f"Scene info collected: {len(scene_info['objects'])} objects")
+            get_logger().info(f"Scene info collected: {len(scene_info['objects'])} objects")
             return scene_info
         except Exception as e:
-            print(f"Error in get_scene_info: {str(e)}")
+            get_logger().exception(f"Error in get_scene_info: {str(e)}")
             traceback.print_exc()
             return {"error": str(e)}
 
@@ -458,7 +457,7 @@ class BlenderMCPServer:
                 mat = bpy.data.materials.get(material_name)
                 if not mat and create_if_missing:
                     mat = bpy.data.materials.new(name=material_name)
-                    print(f"Created new material: {material_name}")
+                    get_logger().info(f"Created new material: {material_name}")
             else:
                 # Generate unique material name if none provided
                 mat_name = f"{object_name}_material"
@@ -466,7 +465,7 @@ class BlenderMCPServer:
                 if not mat:
                     mat = bpy.data.materials.new(name=mat_name)
                 material_name = mat_name
-                print(f"Using material: {mat_name}")
+                get_logger().info(f"Using material: {mat_name}")
 
             # Set up material nodes if needed
             if mat:
@@ -493,7 +492,7 @@ class BlenderMCPServer:
                         color[2],
                         1.0 if len(color) < 4 else color[3],
                     )
-                    print(f"Set material color to {color}")
+                    get_logger().info(f"Set material color to {color}")
 
             # Assign material to object if not already assigned
             if mat:
@@ -503,7 +502,7 @@ class BlenderMCPServer:
                     # Only modify first material slot
                     obj.data.materials[0] = mat
 
-                print(f"Assigned material {mat.name} to object {object_name}")
+                get_logger().info(f"Assigned material {mat.name} to object {object_name}")
 
                 return {
                     "status": "success",
@@ -515,7 +514,7 @@ class BlenderMCPServer:
                 raise ValueError(f"Failed to create or find material: {material_name}")
 
         except Exception as e:
-            print(f"Error in set_material: {str(e)}")
+            get_logger().exception(f"Error in set_material: {str(e)}")
             traceback.print_exc()
             return {
                 "status": "error",
@@ -569,11 +568,13 @@ class BlenderMCPServer:
     def get_tripo_apikey(self):
         """Get current Tripo API key status"""
         api_key = bpy.context.scene.api_key
-        print(
-            "api_key: ",
-            api_key,
-            "API key is configured" if api_key else "API key not found, please configure in the plugin panel",
-        )
+        if api_key:
+            if api_key.startswith('tsk_'):
+                get_logger().info("API key is configured")
+            else:
+                get_logger().error("Invalid API key, it should start with tsk_")
+        else:
+            get_logger().error("API key not found, please configure in the plugin panel")
         return {
             "configured": bool(api_key),
             "api_key": api_key,
