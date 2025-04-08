@@ -394,7 +394,7 @@ async def gltf_model_download(model_url, context, isTextGenerating, model_type):
                         # Ensure we're in object mode before import
                         if bpy.context.mode != 'OBJECT':
                             bpy.ops.object.mode_set(mode='OBJECT')
-                            
+
                         # Deselect all objects first
                         bpy.ops.object.select_all(action="DESELECT")
 
@@ -451,7 +451,7 @@ async def gltf_model_download(model_url, context, isTextGenerating, model_type):
                         # Ensure we're in object mode before import
                         if bpy.context.mode != 'OBJECT':
                             bpy.ops.object.mode_set(mode='OBJECT')
-                            
+
                         # Deselect all objects first
                         bpy.ops.object.select_all(action="DESELECT")
 
@@ -523,7 +523,7 @@ async def manager_gltf_model_download(model_url, context, model_type):
                         # Ensure we're in object mode before import
                         if bpy.context.mode != 'OBJECT':
                             bpy.ops.object.mode_set(mode='OBJECT')
-                            
+
                         # Deselect all objects first
                         bpy.ops.object.select_all(action="DESELECT")
 
@@ -580,7 +580,7 @@ async def manager_gltf_model_download(model_url, context, model_type):
                         # Ensure we're in object mode before import
                         if bpy.context.mode != 'OBJECT':
                             bpy.ops.object.mode_set(mode='OBJECT')
-                            
+
                         # Deselect all objects first
                         bpy.ops.object.select_all(action="DESELECT")
 

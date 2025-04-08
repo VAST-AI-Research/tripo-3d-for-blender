@@ -1,7 +1,7 @@
 import bpy
 import textwrap
 import time
-from .config import TripoConfig 
+from .config import TripoConfig
 
 
 class TRIPOD_PT_TripoPluginManagerPanel(bpy.types.Panel):
@@ -220,11 +220,11 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 row.operator(
                     "my_plugin.switch_image_mode", text="Switch to single image mode"
                 )
-                
+
                 # First row - FRONT and RIGHT images
                 row = box.row()
                 split = row.split(factor=0.5)
-                
+
                 # FRONT IMAGE
                 col_front = split.column(align=True)
                 label_row = col_front.row()
@@ -234,7 +234,7 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 row.template_ID_preview(
                     scn, "front_image", open="my_plugin.load_front_image"
                 )
-                
+
                 # RIGHT IMAGE
                 col_right = split.column(align=True)
                 label_row = col_right.row()
@@ -244,11 +244,11 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 row.template_ID_preview(
                     scn, "right_image", open="my_plugin.load_right_image"
                 )
-                
+
                 # Second row - LEFT and BACK images
                 row = box.row()
                 split = row.split(factor=0.5)
-                
+
                 # LEFT IMAGE
                 col_left = split.column(align=True)
                 label_row = col_left.row()
@@ -258,7 +258,7 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 row.template_ID_preview(
                     scn, "left_image", open="my_plugin.load_left_image"
                 )
-                
+
                 # BACK IMAGE
                 col_back = split.column(align=True)
                 label_row = col_back.row()
@@ -268,7 +268,7 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 row.template_ID_preview(
                     scn, "back_image", open="my_plugin.load_back_image"
                 )
-                
+
                 row = box.row()
             else:
                 row = box.row()

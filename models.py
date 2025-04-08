@@ -79,21 +79,21 @@ class TaskManager:
     def create_image_task(self, image_path, options=None):
         """Create image to model task"""
         from .api import TripoValidationError
-        
+
         # Validate image file
         validate_image_file(image_path)
-        
+
         # Upload image to get token
         upload_result = self.api_client.upload_file(image_path)
         file_token = upload_result["data"]["token"]
-        
+
         # Create task data
         task_data = TaskFactory.create_image_task_data(self.context, file_token)
-        
+
         # Add other options
         if options:
             task_data.update(options)
-            
+
         return self.api_client.create_task(task_data)
 
 
@@ -104,67 +104,67 @@ class ModelImporter:
     async def import_model(cls, model_url, api_key, context):
         """Import model"""
         from .api import show_error_dialog
-        
+
         # Use lock to prevent importing multiple models simultaneously
         if not cls._import_lock.acquire(blocking=False):
             show_error_dialog("Already importing a model. Please wait.")
             return False
-            
+
         try:
             import requests
             import tempfile
             import asyncio
-            
+
             # Download model file
             response = requests.get(model_url)
             if response.status_code != 200:
                 raise Exception(f"Failed to download model: {response.status_code}")
-                
+
             with tempfile.NamedTemporaryFile(suffix=".glb", delete=False) as tmp_file:
                 tmp_file.write(response.content)
                 tmp_path = tmp_file.name
-                
+
                 # Import in main thread
                 def import_in_main():
                     # Ensure we're in object mode before import
                     if bpy.context.mode != 'OBJECT':
                         bpy.ops.object.mode_set(mode='OBJECT')
-                        
+
                     # Deselect all objects
                     bpy.ops.object.select_all(action="DESELECT")
-                    
+
                     # Store existing objects
                     existing_objects = set(bpy.data.objects[:])
-                    
+
                     # Import GLB model
                     bpy.ops.import_scene.gltf(filepath=tmp_path)
-                    
+
                     # Select and rotate new objects
                     new_objects = set(bpy.data.objects[:]) - existing_objects
                     for obj in new_objects:
                         obj.select_set(True)
                         obj.rotation_mode = 'XYZ'
                         obj.rotation_euler[2] = obj.rotation_euler[2] + 1.5708  # 90 degrees
-                        
+
                     # Make one of the new objects active
                     if new_objects:
                         bpy.context.view_layer.objects.active = list(new_objects)[0]
-                        
+
                 # Register import function
                 bpy.app.timers.register(import_in_main)
-                
+
                 # Clean up temporary files
                 def cleanup():
                     try:
                         os.unlink(tmp_path)
                     except Exception as e:
                         logger.error(f"Failed to delete temp file: {str(e)}")
-                        
+
                 # Delayed cleanup
                 bpy.app.timers.register(cleanup, first_interval=5.0)
-                
+
                 return True
-                
+
         except Exception as e:
             show_error_dialog(f"Error importing model: {str(e)}")
             return False
@@ -246,25 +246,25 @@ class TaskFactory:
             "model_url": model_url,
             "model_version": scene.model_version,
         }
-        
+
         if options:
             task_data.update(options)
-            
+
         return task_data
 
 
 def validate_config(context):
     """Validate configuration"""
     from .api import TripoValidationError
-    
+
     # Check API key
     if not context.scene.api_key:
         raise TripoValidationError("API key is not set")
-        
+
     # Check model version
     if not context.scene.model_version:
         raise TripoValidationError("Model version is not set")
-        
+
     # Text generation mode check
     if not context.scene.multiview_generate_mode:
         if not context.scene.text_prompts and not context.scene.image_path:
@@ -273,32 +273,32 @@ def validate_config(context):
     else:
         if not all([context.scene.front_image_path, context.scene.left_image_path, context.scene.back_image_path]):
             raise TripoValidationError("Not all required images set for multiview generation")
-    
+
     return True
 
 
 def validate_image_file(file_path):
     """Validate image file"""
     from .api import TripoValidationError
-    
+
     # Check if file exists
     if not os.path.exists(file_path):
         raise TripoValidationError(f"File not found: {file_path}")
-        
+
     # Check file size
     file_size = os.path.getsize(file_path)
     if file_size > TripoConfig.MAX_FILE_SIZE:
         raise TripoValidationError(
             f"File size ({file_size/1024/1024:.2f} MB) exceeds maximum allowed size ({TripoConfig.MAX_FILE_SIZE/1024/1024:.2f} MB)"
         )
-        
+
     # Check file type
     file_ext = os.path.splitext(file_path)[1][1:].lower()
     if file_ext not in TripoConfig.SUPPORTED_FILE_TYPES:
         raise TripoValidationError(
             f"Unsupported file type: {file_ext}. Supported types: {', '.join(TripoConfig.SUPPORTED_FILE_TYPES.keys())}"
         )
-    
+
     return True
 
 
