@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Tripo 3D",
     "author": "VAST",
-    "version": (0, 7, 0),
+    "version": (0, 7, 1),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Tripo 3D",
     "description": "AI-Powered 3D Model Generation Addon",
@@ -352,6 +352,7 @@ def register():
         ui.TRIPOD_PT_TripoPluginManagerPanel,
         ui.TRIPOD_PT_TripoPluginMainPanel,
         ui.SelectTaskOperator,
+        ui.TaskSubmittedMessageOperator,
     ]
     # Register classes
     for cls in classes:

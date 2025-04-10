@@ -5,8 +5,7 @@ import threading
 import base64
 from hashlib import sha256
 
-from .tripo3d import TripoClient
-from .utils import Update_User_balance, download
+from .utils import Update_User_balance, generation
 
 
 class BLENDERMCP_OT_StartServer(bpy.types.Operator):
@@ -58,7 +57,7 @@ class DownloadTaskOperator(bpy.types.Operator):
         if not self.task_id:
             self.report({"ERROR"}, "Task ID is empty")
             return {"CANCELLED"}
-        thread = threading.Thread(target=download, args=(self.task_id, context))
+        thread = threading.Thread(target=generation, args=(context, self.task_id))
         thread.start()
         return {"FINISHED"}
 
@@ -174,45 +173,10 @@ class GenerateTextModelOperator(bpy.types.Operator):
     bl_label = "Generate Text Model"
 
     def execute(self, context):
-        try:
-            async def process():
-                async with TripoClient(api_key=context.scene.api_key) as client:
-                    prompt = context.scene.text_prompts
-                    if context.scene.use_pose_control:
-                        prompt += (
-                            f", {context.scene.pose_type}:"
-                            f"{context.scene.head_body_height_ratio}:"
-                            f"{context.scene.head_body_width_ratio}:"
-                            f"{context.scene.legs_body_height_ratio}:"
-                            f"{context.scene.arms_body_length_ratio}:"
-                            f"{context.scene.span_of_legs}"
-                        )
-                    task_id = await client.text_to_model(
-                        prompt=prompt,
-                        negative_prompt=context.scene.negative_prompts,
-                        model_version=context.scene.model_version,
-                        face_limit=context.scene.face_limit if context.scene.use_custom_face_limit else None,
-                        texture=context.scene.texture,
-                        pbr=context.scene.pbr,
-                        texture_quality=context.scene.texture_quality,
-                        style=context.scene.style if context.scene.style != "original" else None,
-                        auto_size=context.scene.auto_size,
-                        quad=context.scene.quad
-                    )
-                return task_id, prompt
-            task_id, prompt = asyncio.run(process())
-            task = context.scene.tripo_tasks.add()
-            task.init(task_id=task_id,
-                      task_type="text_to_model",
-                      prompt=prompt)
-            context.scene.tripo_task_index = len(context.scene.tripo_tasks) - 1
-            thread = threading.Thread(target=download, args=(task_id, context))
-            thread.start()
-            return {"FINISHED"}
-
-        except Exception as e:
-            self.report({"ERROR"}, f"Failed to generate model: {str(e)}")
-            return {"CANCELLED"}
+        thread = threading.Thread(target=generation, args=(context, "text_to_model"))
+        thread.start()
+        bpy.ops.tripo3d.task_submitted_message('INVOKE_DEFAULT')
+        return {"FINISHED"}
 
 
 class GenerateImageModelOperator(bpy.types.Operator):
@@ -220,61 +184,10 @@ class GenerateImageModelOperator(bpy.types.Operator):
     bl_label = "Generate Image Model"
 
     def execute(self, context):
-        try:
-            async def process():
-                async with TripoClient(api_key=context.scene.api_key) as client:
-                    # Multiview mode
-                    if context.scene.multiview_generate_mode:
-                        image_paths = [
-                            context.scene.front_image_path,
-                            context.scene.left_image_path,
-                            context.scene.back_image_path,
-                            context.scene.right_image_path
-                        ]
-                        for i in range(len(image_paths)):
-                            if not image_paths[i]:
-                                image_paths[i] = None
-                        task_id = await client.multiview_to_model(
-                            images=image_paths,
-                            model_version=context.scene.model_version,
-                            face_limit=context.scene.face_limit if context.scene.use_custom_face_limit else None,
-                            texture=context.scene.texture,
-                            pbr=context.scene.pbr,
-                            texture_quality=context.scene.texture_quality,
-                            auto_size=context.scene.auto_size,
-                            quad=context.scene.quad
-                        )
-                    else:
-                        task_id = await client.image_to_model(
-                            image=context.scene.image_path,
-                            model_version=context.scene.model_version,
-                            face_limit=context.scene.face_limit if context.scene.use_custom_face_limit else None,
-                            texture=context.scene.texture,
-                            pbr=context.scene.pbr,
-                            texture_quality=context.scene.texture_quality,
-                            style=context.scene.style if context.scene.style != "original" else None,
-                            auto_size=context.scene.auto_size,
-                            quad=context.scene.quad
-                        )
-                return task_id
-            task_id = asyncio.run(process())
-            task = context.scene.tripo_tasks.add()
-            if context.scene.multiview_generate_mode:
-                task.init(task_id=task_id,
-                          task_type="multiview_to_model",
-                          input_image=context.scene.front_image)
-            else:
-                task.init(task_id=task_id,
-                          task_type="image_to_model",
-                          input_image=context.scene.image)
-            context.scene.tripo_task_index = len(context.scene.tripo_tasks) - 1
-            thread = threading.Thread(target=download, args=(task_id, context))
-            thread.start()
-            return {"FINISHED"}
-
-        except Exception as e:
-            self.report({"ERROR"}, f"Failed to generate model: {str(e)}")
-            return {"CANCELLED"}
+        thread = threading.Thread(target=generation, args=(context, "image_to_model" if not context.scene.multiview_generate_mode else "multiview_to_model"))
+        thread.start()
+        bpy.ops.tripo3d.task_submitted_message('INVOKE_DEFAULT')
+        return {"FINISHED"}
 
 
 class LoadBaseImageOperator(bpy.types.Operator):

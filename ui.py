@@ -38,12 +38,12 @@ class TRIPOD_PT_TripoPluginManagerPanel(bpy.types.Panel):
             op = row.operator(
                 "tripo3d.select_task",
                 text=task.task_id,
-                emboss=False,  # 移除按钮边框
-                depress=(i == scn.tripo_task_index)  # 如果是选中行则显示为按下状态
+                emboss=False,
+                depress=(i == scn.tripo_task_index)
             )
             op.task_index = i
             if task.status == "running":
-                row.prop(task, "progress", text=f"{task.progress} %", slider=True)
+                row.prop(task, "progress", text=f"ETA {task.running_left_time} s", slider=True)
             elif task.status == "success":
                 row.operator(
                     DownloadTaskOperator.bl_idname, text="Download"
@@ -295,3 +295,22 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                     adv_col.prop(scn, "texture_quality", text="Texture Quality")
                     adv_col.prop(scn, "auto_size", text="Auto Size")
                     adv_col.prop(scn, "orientation", text="Orientation")
+
+class TaskSubmittedMessageOperator(bpy.types.Operator):
+    bl_idname = "tripo3d.task_submitted_message"
+    bl_label = "Task Submitted Message"
+    bl_options = {'REGISTER', 'INTERNAL'}
+    
+    message: bpy.props.StringProperty(default="Task submitted, please check the task status in the Tripo Model Manager panel")
+    
+    def execute(self, context):
+        return {'FINISHED'}
+    
+    def invoke(self, context, event):
+        wm = context.window_manager
+        return wm.invoke_popup(self, width=300)
+    
+    def draw(self, context):
+        layout = self.layout
+        layout.label(text=self.message)
+        layout.label(text="Please switch to the Tripo Model Manager panel to view the task status")

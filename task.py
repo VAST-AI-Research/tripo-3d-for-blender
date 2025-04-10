@@ -3,7 +3,7 @@ from .utils import ui_update
 
 class TaskPropertyGroup(bpy.types.PropertyGroup):
     task_id: bpy.props.StringProperty(default="")
-    status: bpy.props.StringProperty(default="")
+    status: bpy.props.StringProperty(default="not initialized")
     task_type: bpy.props.StringProperty(default="")
     prompt: bpy.props.StringProperty(default="")
     progress: bpy.props.IntProperty(default=0, min=0, max=100,update=ui_update)
@@ -11,6 +11,7 @@ class TaskPropertyGroup(bpy.types.PropertyGroup):
     input_image_path: bpy.props.StringProperty(default="")
     create_time: bpy.props.StringProperty(default="")
     render_image: bpy.props.PointerProperty(type=bpy.types.Image)
+    running_left_time: bpy.props.FloatProperty(default=-1)
 
     def init(self, task_id: str, task_type: str = None, input_image: bpy.types.Image=None, prompt: str=""):
         if not self.create_time:
@@ -22,15 +23,16 @@ class TaskPropertyGroup(bpy.types.PropertyGroup):
         self.input_image = input_image
         self.prompt = prompt
         self.render_image = None
-        self.status = "not initialized"
 
-    def update(self, status: str=None, progress: int=None, render_image: bpy.types.Image = None):
+    def update(self, status: str=None, progress: int=None, render_image: bpy.types.Image = None, running_left_time: float=None):
         if status is not None:
             self.status = status
         if progress is not None:
             self.progress = progress
         if render_image is not None:
             self.render_image = render_image
+        if running_left_time is not None:
+            self.running_left_time = running_left_time
 
     def applier(self, layout, context):
         col = layout.column(align=True)

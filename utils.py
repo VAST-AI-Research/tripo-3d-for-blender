@@ -5,7 +5,6 @@ import time
 import bpy
 import datetime
 from functools import wraps
-import requests
 
 from .tripo3d import TripoClient, TripoAPIError, TaskStatus
 from .logger import get_logger
@@ -28,7 +27,8 @@ async def receive_one(client, tid, context):
 
             current_task.update(
                 status,
-                task.progress
+                progress=task.progress,
+                running_left_time=task.running_left_time
             )
             if not current_task.task_type:
                 current_task.task_type = task.type
@@ -58,7 +58,7 @@ async def receive_one(client, tid, context):
                     message=f"Unknown task status: {status}"
                 )
             if hasattr(task, 'running_left_time') and task.running_left_time is not None:
-                # Use 80% of the estimated remaining time as the next polling interval
+                # Use 50% of the estimated remaining time as the next polling interval
                 polling_interval = max(2, task.running_left_time * 0.5)
             else:
                 polling_interval = polling_interval * 2
@@ -118,18 +118,92 @@ async def Update_User_balance(api_key, context):
         get_logger().error(f"Error updating user balance: {str(e)}")
 
 
-def download(task_id, context):
-    async def _download():
+def generation(context, task_type):
+    async def submit_and_download():
         try:
             async with TripoClient(api_key=context.scene.api_key) as client:
+                task = context.scene.tripo_tasks.add()
+                context.scene.tripo_task_index = len(context.scene.tripo_tasks) - 1
+                if task_type == "text_to_model":
+                    prompt = context.scene.text_prompts
+                    if context.scene.use_pose_control:
+                        prompt += (
+                            f", {context.scene.pose_type}:"
+                            f"{context.scene.head_body_height_ratio}:"
+                            f"{context.scene.head_body_width_ratio}:"
+                            f"{context.scene.legs_body_height_ratio}:"
+                            f"{context.scene.arms_body_length_ratio}:"
+                            f"{context.scene.span_of_legs}"
+                        )
+                    task_id = await client.text_to_model(
+                        prompt=prompt,
+                        negative_prompt=context.scene.negative_prompts,
+                        model_version=context.scene.model_version,
+                        face_limit=context.scene.face_limit if context.scene.use_custom_face_limit else None,
+                        texture=context.scene.texture,
+                        pbr=context.scene.pbr,
+                        texture_quality=context.scene.texture_quality,
+                        style=context.scene.style if context.scene.style != "original" else None,
+                        auto_size=context.scene.auto_size,
+                        quad=context.scene.quad
+                    )
+                    task.init(task_id=task_id,
+                              task_type=task_type,
+                              prompt=prompt)
+                elif task_type == "image_to_model":
+                    task_id = await client.image_to_model(
+                        image=context.scene.image_path,
+                        model_version=context.scene.model_version,
+                        face_limit=context.scene.face_limit if context.scene.use_custom_face_limit else None,
+                        texture=context.scene.texture,
+                        pbr=context.scene.pbr,
+                        texture_quality=context.scene.texture_quality,
+                        style=context.scene.style if context.scene.style != "original" else None,
+                        auto_size=context.scene.auto_size,
+                        quad=context.scene.quad
+                    )
+                    task.init(task_id=task_id,
+                              task_type=task_type,
+                              input_image=context.scene.image)
+                elif task_type == "multiview_to_model":
+                    image_paths = [
+                        context.scene.front_image_path,
+                        context.scene.left_image_path,
+                        context.scene.back_image_path,
+                        context.scene.right_image_path
+                    ]
+                    for i in range(len(image_paths)):
+                        if not image_paths[i]:
+                            image_paths[i] = None
+                    task_id = await client.multiview_to_model(
+                        images=image_paths,
+                        model_version=context.scene.model_version,
+                        face_limit=context.scene.face_limit if context.scene.use_custom_face_limit else None,
+                        texture=context.scene.texture,
+                        pbr=context.scene.pbr,
+                        texture_quality=context.scene.texture_quality,
+                        auto_size=context.scene.auto_size,
+                        quad=context.scene.quad
+                    )
+                    task.init(task_id=task_id,
+                              task_type=task_type,
+                              input_image=context.scene.front_image)
+                else:
+                    task.init(task_id=task_type)
                 task_info = await receive_one(client, task_id, context)
-                result = await client.download_task_models(task=task_info, output_dir=tempfile.gettempdir())
+                result = client.download_task_models(task=task_info, output_dir=tempfile.gettempdir())
+                render_image_result = None
+                if task_info.output.rendered_image and bpy.app.version >= (3, 2, 0):
+                    render_image_result = client.download_rendered_image(task=task_info, output_dir=tempfile.gettempdir())
+                result = await result
+                if render_image_result is not None:
+                    render_image_result = await render_image_result
                 model_file = next(iter(result.values()))
-                return model_file, task_info
+                return model_file, render_image_result, task_info
         except Exception as e:
             get_logger().error(f"Error downloading model: {str(e)}")
             show_error_dialog(f"Error downloading model: {str(e)}")
-    model_file, task_info = asyncio.run(_download())
+    model_file, render_image_result, task_info = asyncio.run(submit_and_download())
     def import_model(model_file):
         # Deselect all objects first
         bpy.ops.object.select_all(action="DESELECT")
@@ -156,21 +230,11 @@ def download(task_id, context):
         os.remove(model_file)
         return None
     bpy.app.timers.register(lambda: import_model(model_file))
-    if task_info.output.rendered_image and bpy.app.version >= (3, 2, 0):
-        with tempfile.NamedTemporaryFile(suffix=".webp", delete=False) as temp_image_file:
-            try:
-                response = requests.get(task_info.output.rendered_image, stream=True, verify=False, proxies=None)
-                if response.status_code == 200:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        temp_image_file.write(chunk)
-                temp_image_file.close()
-
-                for task in context.scene.tripo_tasks:
-                    if task.task_id == task_id:
-                        task.update(render_image=bpy.data.images.load(temp_image_file.name))
-                        break
-            except Exception as e:
-                get_logger().error(f"Error downloading render image: {str(e)}")
+    if render_image_result is not None:
+        for task in context.scene.tripo_tasks:
+            if task.task_id == task_info.task_id:
+                task.update(render_image=bpy.data.images.load(render_image_result))
+                break
     return None
 
 
