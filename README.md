@@ -112,6 +112,10 @@ This plugin is distributed under the terms of the MIT license - see the LICENSE 
 
 ## Version History
 
+- **0.7.0**: New Features
+  - Display task information including input details and rendered images
+  - Support for concurrent generation of multiple models
+
 - **0.6.0**: Quality-of-Life Improvements
   - Fixed URL query issues for more reliable API communication
   - Improved imported model orientation (models now face +Y direction by default)
