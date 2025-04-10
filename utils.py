@@ -3,71 +3,66 @@ import asyncio
 import tempfile
 import time
 import bpy
+import datetime
 from functools import wraps
-import sys
-current_dir = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(os.path.join(os.path.dirname(current_dir), "tripo-python-sdk"))
+import requests
 
-from tripo3d import TripoClient, TripoAPIError, TaskStatus
+from .tripo3d import TripoClient, TripoAPIError, TaskStatus
 from .logger import get_logger
 
-
-async def receive_one(client, tid, context, isTextGenerating):
-    progress_tracker = ProgressTracker(context, isTextGenerating)
+async def receive_one(client, tid, context):
+    current_task = None
+    for task in context.scene.tripo_tasks:
+        if task.task_id == tid:
+            current_task = task
+            break
+    if current_task is None:
+        current_task = context.scene.tripo_tasks.add()
+        current_task.task_id = tid
+        context.scene.tripo_task_index = len(context.scene.tripo_tasks) - 1
     polling_interval = 2
     try:
-        with progress_tracker:
-            while True:
-                task = await client.get_task(tid)
-                status = task.status
-                progress_value = float(task.progress)
+        while True:
+            task = await client.get_task(tid)
+            status = task.status
 
-                progress_tracker.update_progress(
-                    progress_value, f"Task {status}: {progress_value}%"
+            current_task.update(
+                status,
+                task.progress
+            )
+            if not current_task.task_type:
+                current_task.task_type = task.type
+                if task.type == "text_to_model":
+                    current_task.prompt = task.input.get("prompt", "")
+                # Convert Unix timestamp to formatted date string
+                if hasattr(task, 'create_time') and task.create_time:
+                    date_time = datetime.datetime.fromtimestamp(task.create_time)
+                    current_task.create_time = date_time.strftime("%Y/%m/%d %H:%M:%S")
+
+            if status in [TaskStatus.SUCCESS]:
+                await Update_User_balance(context.scene.api_key, context)
+                return task
+            elif status == TaskStatus.FAILED:
+                raise TripoAPIError(
+                    code="TASK_FAILED",
+                    message=f"Task failed"
                 )
-                scn = context.scene
-                task_status_array = scn.task_status_array
-
-                # Mark whether the task is found
-                task_found = False
-
-                for task_item in task_status_array:
-                    if task_item.task_id == tid:
-                        task_item.status = status
-                        task_found = True
-                        break
-
-                if not task_found:
-                    # If task not found, add a new task
-                    new_task = task_status_array.add()
-                    new_task.task_id = tid
-                    new_task.status = status
-
-                if status in [TaskStatus.SUCCESS]:
-                    Update_User_balance(context.scene.api_key, context)
-                    return task
-                elif status == TaskStatus.FAILED:
-                    raise TripoAPIError(
-                        code="TASK_FAILED", 
-                        message=f"Task failed"
-                    )
-                elif status == TaskStatus.BANNED:
-                    raise TripoAPIError(
-                        code="TASK_BANNED", 
-                        message=f"Task banned"
-                    )
-                elif status not in [TaskStatus.QUEUED, TaskStatus.RUNNING]:
-                    raise TripoAPIError(
-                        code="UNKNOWN_STATUS", 
-                        message=f"Unknown task status: {status}"
-                    )
-                if hasattr(task, 'running_left_time') and task.running_left_time is not None:
-                    # Use 80% of the estimated remaining time as the next polling interval
-                    polling_interval = max(2, task.running_left_time * 0.5)
-                else:
-                    polling_interval = polling_interval * 2
-                await asyncio.sleep(polling_interval)
-
+            elif status == TaskStatus.BANNED:
+                raise TripoAPIError(
+                    code="TASK_BANNED",
+                    message=f"Task banned"
+                )
+            elif status not in [TaskStatus.QUEUED, TaskStatus.RUNNING]:
+                raise TripoAPIError(
+                    code="UNKNOWN_STATUS",
+                    message=f"Unknown task status: {status}"
+                )
+            if hasattr(task, 'running_left_time') and task.running_left_time is not None:
+                # Use 80% of the estimated remaining time as the next polling interval
+                polling_interval = max(2, task.running_left_time * 0.5)
+            else:
+                polling_interval = polling_interval * 2
+            await asyncio.sleep(polling_interval)
     except Exception as e:
         get_logger().error(f"Error in receive_one: {str(e)}")
         raise
@@ -82,50 +77,6 @@ def show_error_dialog(error_message):
 
     # Schedule the dialog to be shown in the main thread
     bpy.app.timers.register(show_message, first_interval=0.1)
-
-
-@retry_with_backoff
-def Update_User_balance(api_key, context):
-    try:
-        async with TripoClient(api_key=api_key) as client:
-            balance = await client.get_balance()
-        context.scene.user_balance = f"{balance.balance:.2f}"
-    except Exception as e:
-        get_logger().error(f"Error updating user balance: {str(e)}")
-
-
-async def download(task_id, context, task_type=None):
-    try:
-        async with TripoClient(api_key=context.scene.api_key) as client:
-            task_info = await receive_one(client, task_id, context, task_type == 'text2model')
-            if task_type is not None:
-                if task_type == 'text2model':
-                    context.scene.text_is_importing_model = True
-                else:
-                    context.scene.image_is_importing_model = True
-            with tempfile.TemporaryDirectory() as temp_dir:
-                result = await client.download_task_models(task=task_info, output_dir=temp_dir)
-                model_file = next(iter(downloaded.values()))
-                file_extension = os.path.splitext(model_file)[1].lower()
-                if temp_filename.endswith('fbx'):
-                    bpy.ops.import_scene.fbx(filepath=temp_filename)
-                else:
-                    bpy.ops.import_scene.gltf(filepath=temp_filename, merge_vertices=True)
-                # Set the viewport shading to material preview
-                for area in bpy.context.screen.areas:
-                    if area.type == 'VIEW_3D':
-                        for space in area.spaces:
-                            if space.type == 'VIEW_3D':
-                                space.shading.type = 'MATERIAL'
-    except Exception as e:
-        get_logger().error(f"Error downloading model: {str(e)}")
-        show_error_dialog(f"Error downloading model: {str(e)}")
-    finally:
-        if task_type is not None:
-            if task_type == 'text2model':
-                context.scene.text_is_importing_model = False
-            else:
-                context.scene.image_is_importing_model = False
 
 
 def retry_with_backoff(func):
@@ -150,56 +101,77 @@ def retry_with_backoff(func):
                 if attempt == max_retries - 1:  # Last attempt
                     raise  # Re-raise the last error
 
-                config.get_logger().warning(f"Attempt {attempt + 1} failed: {str(e)}")
+                get_logger().warning(f"Attempt {attempt + 1} failed: {str(e)}")
                 time.sleep(retry_delay)
                 retry_delay *= 2  # Exponential backoff
 
     return wrapper
 
 
-class ProgressTracker:
-    """
-    Progress tracker for generation process
-    """
-    def __init__(self, context, is_text_generating=True):
-        self.context = context
-        self.is_text_generating = is_text_generating
-        self.start_time = time.time()
+@retry_with_backoff
+async def Update_User_balance(api_key, context):
+    try:
+        async with TripoClient(api_key=api_key) as client:
+            balance = await client.get_balance()
+        context.scene.user_balance = str(int(balance.balance))
+    except Exception as e:
+        get_logger().error(f"Error updating user balance: {str(e)}")
 
-    def __enter__(self):
-        if self.is_text_generating:
-            self.context.scene.text_model_generating = True
+
+def download(task_id, context):
+    async def _download():
+        try:
+            async with TripoClient(api_key=context.scene.api_key) as client:
+                task_info = await receive_one(client, task_id, context)
+                result = await client.download_task_models(task=task_info, output_dir=tempfile.gettempdir())
+                model_file = next(iter(result.values()))
+                return model_file, task_info
+        except Exception as e:
+            get_logger().error(f"Error downloading model: {str(e)}")
+            show_error_dialog(f"Error downloading model: {str(e)}")
+    model_file, task_info = asyncio.run(_download())
+    def import_model(model_file):
+        # Deselect all objects first
+        bpy.ops.object.select_all(action="DESELECT")
+
+        # Store current objects
+        existing_objects = set(bpy.data.objects[:])
+        # Ensure we're in object mode before import
+        if bpy.context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+        if model_file.endswith('fbx'):
+            bpy.ops.import_scene.fbx(filepath=model_file)
         else:
-            self.context.scene.image_model_generating = True
-        return self
+            bpy.ops.import_scene.gltf(filepath=model_file, merge_vertices=True)
+        # Select only newly added objects
+        new_objects = set(bpy.data.objects[:]) - existing_objects
+        for obj in new_objects:
+            obj.select_set(True)
+            obj.rotation_mode = 'XYZ'
+            obj.rotation_euler[2] = obj.rotation_euler[2] + 1.5708  # 90 degrees in radians
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.is_text_generating:
-            self.context.scene.text_model_generating = False
-            self.context.scene.text_generating_percentage = 0
-        else:
-            self.context.scene.image_model_generating = False
-            self.context.scene.image_generating_percentage = 0
+        # Set active object to one of the new objects if any were added
+        if new_objects:
+            bpy.context.view_layer.objects.active = list(new_objects)[0]
+        os.remove(model_file)
+        return None
+    bpy.app.timers.register(lambda: import_model(model_file))
+    if task_info.output.rendered_image and bpy.app.version >= (3, 2, 0):
+        with tempfile.NamedTemporaryFile(suffix=".webp", delete=False) as temp_image_file:
+            try:
+                response = requests.get(task_info.output.rendered_image, stream=True, verify=False, proxies=None)
+                if response.status_code == 200:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        temp_image_file.write(chunk)
+                temp_image_file.close()
 
-    def update_progress(self, progress, status=None):
-        """
-        Update progress and status
-
-        Args:
-            progress: Progress percentage (0-100)
-            status: Status description text
-        """
-        if self.is_text_generating:
-            self.context.scene.text_generating_percentage = progress
-        else:
-            self.context.scene.image_generating_percentage = progress
-
-        if status and hasattr(self.context.scene, "generation_status"):
-            self.context.scene.generation_status = status
-
-        if hasattr(self.context.scene, "generation_elapsed_time"):
-            elapsed_time = time.time() - self.start_time
-            self.context.scene.generation_elapsed_time = elapsed_time
+                for task in context.scene.tripo_tasks:
+                    if task.task_id == task_id:
+                        task.update(render_image=bpy.data.images.load(temp_image_file.name))
+                        break
+            except Exception as e:
+                get_logger().error(f"Error downloading render image: {str(e)}")
+    return None
 
 
 def calculate_generation_price(scene, task_type):
@@ -207,7 +179,7 @@ def calculate_generation_price(scene, task_type):
     Calculate the price for a generation task
 
     Args:
-        scene: Blender scene
+        scene: Blender
 
     Returns:
         float: The price for the task
@@ -224,8 +196,46 @@ def calculate_generation_price(scene, task_type):
             price += 10
         if scene.quad:
             price += 5
-        if scene.style and not scene.multiview_generate_mode:
+        if scene.style != "original" and not scene.multiview_generate_mode:
             price += 5
     else:
         price += 10
     return price
+
+
+def ui_update(self, context):
+    if not context.area or context.area.type != "VIEW_3D":
+        return None
+
+    # Store last update time to prevent too frequent updates
+    current_time = time.time()
+    last_update = context.scene.last_ui_update
+
+    # Only update if more than 0.1 seconds have passed
+    if current_time - last_update > 0.1:
+        for region in context.area.regions:
+            if region.type == "UI":
+                region.tag_redraw()
+        context.scene.last_ui_update = current_time
+
+    return None
+
+def image_update(self, context):
+    if self.image is None:
+        self.image_path = ""
+
+def front_image_update(self, context):
+    if self.front_image is None:
+        self.front_image_path = ""
+
+def back_image_update(self, context):
+    if self.back_image is None:
+        self.back_image_path = ""
+
+def left_image_update(self, context):
+    if self.left_image is None:
+        self.left_image_path = ""
+
+def right_image_update(self, context):
+    if self.right_image is None:
+        self.right_image_path = ""

@@ -11,38 +11,13 @@ bl_info = {
 }
 
 import bpy
-import os
-from bpy.props import StringProperty, IntProperty, BoolProperty, FloatProperty, EnumProperty, PointerProperty
-import tempfile
-import shutil
-
-# Import modules
-from . import config
-from .config import get_logger
-from . import api
-from . import models
-from . import ui
-from . import server
-from . import operators
-
-
-class TripoSettings(bpy.types.PropertyGroup):
-    api_key: bpy.props.StringProperty(
-        name="API Key",
-        description="API Key for Tripo 3D",
-        default="",
-        subtype="PASSWORD",
-    )
-    api_key_confirmed: bpy.props.BoolProperty(name="API Key Confirmed", default=False)
-    user_balance: bpy.props.StringProperty(name="User Balance", default="----")
-
-class TaskStatus(bpy.types.PropertyGroup):
-    task_id: bpy.props.StringProperty(name="Task ID", default="")
-    status: bpy.props.StringProperty(name="Status", default="")
+from .operators import load_api_key_from_local
+from .task import TaskPropertyGroup
 
 REGISTERED_PROPERTIES = []
 # Property registration function
 def register_custom_properties():
+    from .utils import ui_update
     pre_register_props = set(dir(bpy.types.Scene))
     bpy.types.Scene.api_key = bpy.props.StringProperty(
         name="API Key", default="", subtype="PASSWORD"
@@ -94,10 +69,6 @@ def register_custom_properties():
     bpy.types.Scene.MCP_use_tripo = bpy.props.BoolProperty(
         name="MCP_use_tripo", default=True
     )
-    bpy.types.Scene.task_status_array = bpy.props.CollectionProperty(type=TaskStatus)
-    bpy.types.Scene.temp_taskid = bpy.props.StringProperty(
-        name="temp_taskid", default=""
-    )
 
     bpy.types.Scene.multiview_generate_mode = bpy.props.BoolProperty(
         name="multiview_generate_mode",
@@ -138,14 +109,6 @@ def register_custom_properties():
         name="PBR",
         description="A boolean option to enable pbr. The default value is True, set False to get a model without pbr. If this option is set to True, texture will be ignored and used as True.",
         default=True,
-    )
-
-    # Texture Seed
-    bpy.types.Scene.texture_seed = bpy.props.IntProperty(
-        name="Texture Seed",
-        description="This is the random seed for texture generation in version v2.0-20240919. Using the same seed will produce identical textures. This parameter is an integer and is randomly chosen if not set. If you want a model with different textures, please use the same model_seed and different texture_seed.",
-        default=0,
-        min=0,
     )
 
     # Texture Alignment
@@ -264,60 +227,21 @@ def register_custom_properties():
     bpy.types.Scene.right_image_path = bpy.props.StringProperty(
         name="right_image_path", default=""
     )
-    bpy.types.Scene.filter_glob = bpy.props.StringProperty(
-        default="*.png;*.jpg;*.jpeg;*.bmp;*.gif", options={"HIDDEN"}
-    )
-    bpy.types.Scene.text_model_generating = bpy.props.BoolProperty(
-        name="text_model_generating", default=False, update=ui_update
-    )
-    bpy.types.Scene.text_generating_percentage = bpy.props.FloatProperty(
-        name="text_generating_percentage",
-        description="A percentage value for generating",
-        default=0.0,
-        min=0.0,
-        max=100.0,
-        update=ui_update,
-    )
-    bpy.types.Scene.image_model_generating = bpy.props.BoolProperty(
-        name="image_model_generating", default=False, update=ui_update
-    )
-    bpy.types.Scene.image_generating_percentage = bpy.props.FloatProperty(
-        name="image_generating_percentage",
-        description="A percentage value for generating",
-        default=0.0,
-        min=0.0,
-        max=100.0,
-        update=ui_update,
-    )
-    bpy.types.Scene.template_image = bpy.props.PointerProperty(type=bpy.types.Image)
-    bpy.types.Scene.preview_image = bpy.props.PointerProperty(type=bpy.types.Image)
-    bpy.types.Scene.front_image = bpy.props.PointerProperty(type=bpy.types.Image)
-    bpy.types.Scene.left_image = bpy.props.PointerProperty(type=bpy.types.Image)
-    bpy.types.Scene.back_image = bpy.props.PointerProperty(type=bpy.types.Image)
-    bpy.types.Scene.right_image = bpy.props.PointerProperty(type=bpy.types.Image)
-
-    bpy.types.Scene.upload_image_props = bpy.props.PointerProperty(
-        type=ImagePreviewProps,
-        description="The properties of the image preview",
-    )
+    from .utils import image_update, front_image_update, back_image_update, left_image_update, right_image_update
+    bpy.types.Scene.image = bpy.props.PointerProperty(type=bpy.types.Image, update=image_update)
+    bpy.types.Scene.front_image = bpy.props.PointerProperty(type=bpy.types.Image, update=front_image_update)
+    bpy.types.Scene.left_image = bpy.props.PointerProperty(type=bpy.types.Image, update=left_image_update)
+    bpy.types.Scene.back_image = bpy.props.PointerProperty(type=bpy.types.Image, update=back_image_update)
+    bpy.types.Scene.right_image = bpy.props.PointerProperty(type=bpy.types.Image, update=right_image_update)
 
     bpy.types.Scene.last_ui_update = bpy.props.FloatProperty(
         name="Last UI Update Time", default=0.0
     )
 
-    # Add these new properties
-    bpy.types.Scene.generation_elapsed_time = bpy.props.FloatProperty(
-        name="Generation Elapsed Time",
-        description="Time elapsed since generation started",
-        default=0.0,
-        min=0.0,
+    bpy.types.Scene.temp_taskid = bpy.props.StringProperty(
+        name="temp_taskid", default=""
     )
 
-    bpy.types.Scene.generation_status = bpy.props.StringProperty(
-        name="Generation Status",
-        description="Current status of the generation process",
-        default="",
-    )
     bpy.types.Scene.use_pose_control = bpy.props.BoolProperty(
         name="Enable Pose Control",
         description="Enable control over the model's pose",
@@ -369,74 +293,84 @@ def register_custom_properties():
         max=15.0,
         step=0.1,
     )
+    bpy.types.Scene.tripo_tasks = bpy.props.CollectionProperty(type=TaskPropertyGroup)
+    bpy.types.Scene.tripo_task_index = bpy.props.IntProperty(default=-1)
     post_register_props = set(dir(bpy.types.Scene))
     global REGISTERED_PROPERTIES
     REGISTERED_PROPERTIES = list(post_register_props - pre_register_props)
 
 
-# Registered class list
-classes = [
-    # Operators
-    operators.BLENDERMCP_OT_StartServer,
-    operators.BLENDERMCP_OT_StopServer,
-    operators.DownloadTaskOperator,
-    operators.ResetPoseSettings,
-    operators.ShowErrorDialog,
-    operators.ConfirmApiKeyOperator,
-    operators.SwitchImageModeOperator,
-    operators.GenerateTextModelOperator,
-    operators.LoadImageOperator,
-    operators.LoadLeftImageOperator,
-    operators.LoadRightImageOperator,
-    operators.LoadFrontImageOperator,
-    operators.LoadBackImageOperator,
-    operators.GenerateImageModelOperator,
-    operators.MyModelVersionSelector,
-    config.TripoSettings,
-    TaskStatus,
-    # UI panels
-    ui.TRIPOD_PT_TripoPluginManagerPanel,
-    ui.TRIPOD_PT_TripoPluginMainPanel,
-    ui.ImagePreviewProps,
-]
-
-
 # Register function
 def register():
     """Register plugin"""
+    if bpy.app.version < bl_info["blender"]:
+        msg = (
+            f"Addon requires Blender {'.'.join(map(str, bl_info['blender']))} or newer"
+        )
+        raise Exception(msg)
+
+    bpy.types.Scene.blendermcp_port = bpy.props.IntProperty(
+        name="Port",
+        description="Port for the BlenderMCP server",
+        default=9876,
+        min=1024,
+        max=65535,
+    )
+
+    bpy.types.Scene.blendermcp_server_running = bpy.props.BoolProperty(
+        name="Server Running", default=False
+    )
+
+    bpy.types.Scene.blendermcp_use_polyhaven = bpy.props.BoolProperty(
+        name="Use Poly Haven",
+        description="Enable Poly Haven asset integration",
+        default=False,
+    )
+
+    global classes
+    from . import ui
+    from . import operators
+
+    classes = [
+        # Operators
+        operators.BLENDERMCP_OT_StartServer,
+        operators.BLENDERMCP_OT_StopServer,
+        operators.DownloadTaskOperator,
+        operators.ResetPoseSettings,
+        operators.ShowErrorDialog,
+        operators.ConfirmApiKeyOperator,
+        operators.SwitchImageModeOperator,
+        operators.GenerateTextModelOperator,
+        operators.LoadImageOperator,
+        operators.LoadLeftImageOperator,
+        operators.LoadRightImageOperator,
+        operators.LoadFrontImageOperator,
+        operators.LoadBackImageOperator,
+        operators.GenerateImageModelOperator,
+        TaskPropertyGroup,
+        # UI panels
+        ui.TRIPOD_PT_TripoPluginManagerPanel,
+        ui.TRIPOD_PT_TripoPluginMainPanel,
+        ui.SelectTaskOperator,
+    ]
     # Register classes
     for cls in classes:
         bpy.utils.register_class(cls)
 
-    bpy.types.Scene.tripo_settings = bpy.props.PointerProperty(type=config.TripoSettings)
     # Register properties
     register_custom_properties()
 
-    # Register handlers
-    register_error_handlers()
-
-    # Load API key
-    if bpy.app.timers.is_registered(load_api_key_from_local):
-        bpy.app.timers.unregister(load_api_key_from_local)
-    bpy.app.timers.register(load_api_key_from_local, first_interval=1.0, persistent=True)
-
     # Register save/load handlers
-    if save_handler not in bpy.app.handlers.save_pre:
-        bpy.app.handlers.save_pre.append(save_handler)
-    if load_handler not in bpy.app.handlers.load_post:
-        bpy.app.handlers.load_post.append(load_handler)
+    if load_api_key_from_local not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(load_api_key_from_local)
 
 
 # Unregister function
 def unregister():
     """Unregister plugin"""
-    # Unregister handlers
-    unregister_error_handlers()
 
-    if save_handler in bpy.app.handlers.save_pre:
-        bpy.app.handlers.save_pre.remove(save_handler)
-    if load_handler in bpy.app.handlers.load_post:
-        bpy.app.handlers.load_post.remove(load_handler)
+    if load_api_key_from_local in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(load_api_key_from_local)
 
     # Stop server
     if hasattr(bpy, "blendermcp_server") and bpy.blendermcp_server is not None:
@@ -444,6 +378,7 @@ def unregister():
         bpy.blendermcp_server = None
 
     # Unregister classes
+    global classes
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
 
@@ -453,80 +388,6 @@ def unregister():
             delattr(bpy.types.Scene, prop_name)
 
     REGISTERED_PROPERTIES = []
-
-
-# Save handler
-def save_handler(dummy):
-    """Save pre-processing"""
-    # Save API key
-    if hasattr(bpy.context.scene, "api_key") and bpy.context.scene.api_key:
-        try:
-            addon_dir = os.path.dirname(os.path.realpath(__file__))
-            key_file = os.path.join(addon_dir, "api_key.txt")
-            with open(key_file, "w") as f:
-                f.write(bpy.context.scene.api_key)
-        except Exception as e:
-            get_logger().exception(f"Failed to save API key: {str(e)}")
-
-
-# Load handler
-def load_handler(dummy):
-    """Load post-processing"""
-    scene = bpy.context.scene
-    # Load API key
-    if hasattr(bpy.context.scene, "api_key"):
-        Update_User_balance(scene.api_key, bpy.context)
-
-
-# Load API key from local
-@bpy.app.handlers.persistent
-def load_api_key_from_local(dummy):
-    """Load API key from local file"""
-    try:
-        addon_dir = os.path.dirname(os.path.realpath(__file__))
-        key_file = os.path.join(addon_dir, "api_key.txt")
-        if os.path.exists(key_file):
-            with open(key_file, "r") as f:
-                api_key = f.read().strip()
-                if api_key:
-                    bpy.context.scene.api_key = api_key
-                    bpy.context.scene.api_key_confirmed = True
-
-                    # Update balance
-                    try:
-                        api.Update_User_balance(api_key, bpy.context)
-                    except Exception as e:
-                        get_logger().exception(f"Failed to update balance: {str(e)}")
-    except Exception as e:
-        get_logger().exception(f"Failed to load API key: {str(e)}")
-
-
-# Register error handlers
-def register_error_handlers():
-    """Register error handlers"""
-    @bpy.app.handlers.persistent
-    def handle_blender_crash(*args):
-        """Blender crash handler, cleans up temporary files"""
-        # Clean up temporary files
-        temp_dir = tempfile.gettempdir()
-        for file in os.listdir(temp_dir):
-            if file.startswith("tripo_") and file.endswith(".glb"):
-                try:
-                    os.unlink(os.path.join(temp_dir, file))
-                except Exception as e:
-                    get_logger().error(f"Failed to delete temporary file {file}: {str(e)}")
-
-    # Register the handler for load_post event
-    if handle_blender_crash not in bpy.app.handlers.load_post:
-        bpy.app.handlers.load_post.append(handle_blender_crash)
-
-
-def unregister_error_handlers():
-    """Unregister error handlers"""
-    # Remove all handlers we added
-    for handler in bpy.app.handlers.load_post:
-        if handler.__name__ == "handle_blender_crash":
-            bpy.app.handlers.load_post.remove(handler)
 
 
 # Register plugin when run directly

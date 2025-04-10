@@ -1,8 +1,17 @@
 import bpy
-import textwrap
-import time
-from .config import TripoConfig
+from .operators import DownloadTaskOperator, ResetPoseSettings
+from .utils import calculate_generation_price
 
+class SelectTaskOperator(bpy.types.Operator):
+    bl_idname = "tripo3d.select_task"
+    bl_label = "Select Task"
+    bl_description = "Select this task"
+
+    task_index: bpy.props.IntProperty()
+
+    def execute(self, context):
+        context.scene.tripo_task_index = self.task_index
+        return {'FINISHED'}
 
 class TRIPOD_PT_TripoPluginManagerPanel(bpy.types.Panel):
     bl_idname = "TRIPOD_PT_Manage_panel"
@@ -20,23 +29,27 @@ class TRIPOD_PT_TripoPluginManagerPanel(bpy.types.Panel):
         row = box.row()
         row.label(text="TaskID:")
         row.label(text="Status:")
-        row.label(text="Options:")
 
         # Read task status stored in the scene
-        for task in scn.task_status_array:
+        for i, task in enumerate(scn.tripo_tasks):
             row = box.row()
-            row.label(text=task.task_id)  # Use task.task_id
-            row.label(text=task.status)  # Use task.status
-            if task.status == "failed":
-                row.operator(
-                    DownloadTaskOperator.bl_idname, text="Retry"
-                ).task_id = task.task_id
-            else:
+            if i == scn.tripo_task_index:
+                row.alert = True
+            op = row.operator(
+                "tripo3d.select_task",
+                text=task.task_id,
+                emboss=False,  # 移除按钮边框
+                depress=(i == scn.tripo_task_index)  # 如果是选中行则显示为按下状态
+            )
+            op.task_index = i
+            if task.status == "running":
+                row.prop(task, "progress", text=f"{task.progress} %", slider=True)
+            elif task.status == "success":
                 row.operator(
                     DownloadTaskOperator.bl_idname, text="Download"
                 ).task_id = task.task_id
-            if task.status == "running" or task.status == "queued":
-                row.enabled = False
+            else:
+                row.label(text=task.status)
         box = layout.box()
         row = box.row()
         row.label(text="Add custom task:")
@@ -46,27 +59,14 @@ class TRIPOD_PT_TripoPluginManagerPanel(bpy.types.Panel):
             DownloadTaskOperator.bl_idname, text="Search and add"
         ).task_id = scn.temp_taskid
 
-    def add_task(self, task_id, status, scene):
-        """Add new task to the scene"""
-        task_status_array = scene.task_status_array
+        box = layout.box()
+        index = context.scene.tripo_task_index
+        if index < 0 or index >= len(context.scene.tripo_tasks):
+            box.label(text="No task selected.")
+            return
 
-        # Add new task
-        new_task = task_status_array.add()
-        new_task.task_id = task_id
-        new_task.status = status
-
-    def refresh_tasks(self, context):
-        """Refresh task status"""
-        scn = context.scene
-        task_status_array = scn.task_status_array
-
-        for task in task_status_array:
-            task_id = task.task_id
-            # Should call real API to get task status
-            # status = get_task_status(task_id)
-            status = "NEW_STATUS"  # Assume you get new status from API
-            # Update status
-            task.status = status  # Update status
+        task = context.scene.tripo_tasks[index]
+        task.applier(box, context)
 
 
 class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
@@ -92,7 +92,7 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
         row.prop(context.scene, "api_key", text="")
 
         row = layout.row()
-        row.operator("my_plugin.confirm_api_key", text="Confirm")
+        row.operator("tripo3d.confirm_api_key", text="Confirm")
 
         if not context.scene.api_key_confirmed:
             row = layout.row()
@@ -116,60 +116,64 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 row.label(text="3. Apply the API key and click to copy")
 
         if context.scene.api_key_confirmed:
-            layout.label(text="")
             mcp_box = layout.box()
             row = mcp_box.row(align=True)
             row.alignment = "CENTER"
             row.label(text="MCP Connections")
             row = mcp_box.row()
             row.prop(scn, "blendermcp_port")
-            row = mcp_box.row()
-            row.prop(scn, "blendermcp_use_polyhaven", text="Use assets from Poly Haven")
-            row = mcp_box.row()
-            row.enabled = False
-            row.prop(scn, "MCP_use_tripo", text="Use Tripo as assets generator")
+            col = mcp_box.column(align=True)
+            col.prop(scn, "blendermcp_use_polyhaven", text="Use assets from Poly Haven")
+
+            sub_row = col.row()
+            sub_row.enabled = False
+            sub_row.prop(scn, "MCP_use_tripo", text="Use Tripo as assets generator")
+
             if not scn.blendermcp_server_running:
                 mcp_box.operator("blendermcp.start_server", text="Start MCP Server")
             else:
                 mcp_box.operator("blendermcp.stop_server", text="Stop MCP Server")
                 mcp_box.label(text=f"Running on port {scn.blendermcp_port}")
 
-            layout.label(text="")
             box = layout.box()
             row = box.row(align=True)  # Create a centered row layout
             row.alignment = "CENTER"
             row.label(text="Text_to_Model")
-            row = box.row()
-            row.label(text="Text prompts:")
-            row = box.row()
-            row.prop(context.scene, "text_prompts", text="")
-            row = box.row()
-            row.prop(scn, "enable_negative_prompts", text="Enable negative prompts")
+            col = box.column(align=True)
+            col.label(text="Text prompts:")
+            col.prop(context.scene, "text_prompts", text="")
+            col.prop(scn, "enable_negative_prompts", text="Enable negative prompts")
             if scn.enable_negative_prompts:
-                row = box.row()
-                row.label(text="Negative prompts:")
-                row = box.row()
-                row.prop(context.scene, "negative_prompts", text="")
+                col.label(text="Negative prompts:")
+                col.prop(context.scene, "negative_prompts", text="")
+            row = col.row()
+            row.prop(scn, "use_pose_control", text="Enable Pose Control")
+            if scn.use_pose_control:
+                row.operator(ResetPoseSettings.bl_idname, text="Reset Pose Control")
+
+                col = box.column(align=True)
+                # Dropdown to select T-pose or A-pose
+                col.prop(scn, "pose_type", text="Pose Type")
+                col = box.column(align=True)
+                # Slider to adjust head-body height ratio
+                col.prop(scn, "head_body_height_ratio", text="Head-Body Height Ratio")
+                # Slider to adjust head-body width ratio
+                col.prop(scn, "head_body_width_ratio", text="Head-Body Width Ratio")
+                # Slider to adjust legs-body height ratio
+                col.prop(scn, "legs_body_height_ratio", text="Legs-Body Height Ratio")
+                # Slider to adjust arms-body length ratio
+                col.prop(scn, "arms_body_length_ratio", text="Arms-Body Length Ratio")
+                # Slider to adjust distance between legs
+                col.prop(scn, "span_of_legs", text="Span of Two Legs")
 
             row = box.row()
             if not context.scene.text_prompts:
                 row.enabled = False
             row.operator(
-                "my_plugin.generate_text_model",
+                "tripo3d.generate_text_model",
                 text=f"Generate (cost:{calculate_generation_price(scn, 'text2model')})",
             )
-            if context.scene.text_model_generating:
-                box.label(text="Task Generating...")
-                box.prop(
-                    context.scene, "text_generating_percentage", text="", slider=True
-                )
-            else:
-                box.label(text="No Task Generating")
-            if scn.text_is_importing_model:
-                row = box.row()
-                row.label(text="Import Model...")
 
-            layout.label(text="")
             box = layout.box()
             row = box.row(align=True)
             row.alignment = "CENTER"
@@ -178,7 +182,7 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
             if scn.model_version.startswith("v2.") and scn.multiview_generate_mode:
                 row = box.row()
                 row.operator(
-                    "my_plugin.switch_image_mode", text="Switch to single image mode"
+                    "tripo3d.switch_image_mode", text="Switch to single image mode"
                 )
 
                 # First row - FRONT and RIGHT images
@@ -192,7 +196,7 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 label_row.label(text="FRONT")
                 row = col_front.row()
                 row.template_ID_preview(
-                    scn, "front_image", open="my_plugin.load_front_image"
+                    scn, "front_image", open="tripo3d.load_front_image"
                 )
 
                 # RIGHT IMAGE
@@ -202,7 +206,7 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 label_row.label(text="RIGHT")
                 row = col_right.row()
                 row.template_ID_preview(
-                    scn, "right_image", open="my_plugin.load_right_image"
+                    scn, "right_image", open="tripo3d.load_right_image"
                 )
 
                 # Second row - LEFT and BACK images
@@ -216,7 +220,7 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 label_row.label(text="LEFT")
                 row = col_left.row()
                 row.template_ID_preview(
-                    scn, "left_image", open="my_plugin.load_left_image"
+                    scn, "left_image", open="tripo3d.load_left_image"
                 )
 
                 # BACK IMAGE
@@ -226,99 +230,55 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                 label_row.label(text="BACK")
                 row = col_back.row()
                 row.template_ID_preview(
-                    scn, "back_image", open="my_plugin.load_back_image"
+                    scn, "back_image", open="tripo3d.load_back_image"
                 )
 
                 row = box.row()
-                row.enabled = context.scene.front_image_path and \
-                              any([context.scene.left_image_path, \
-                              context.scene.back_image_path, \
-                              context.scene.right_image_path])
+                row.enabled = len(context.scene.front_image_path) > 0 and \
+                              any([len(context.scene.left_image_path) > 0, \
+                              len(context.scene.back_image_path) > 0, \
+                              len(context.scene.right_image_path) > 0])
             else:
                 row = box.row()
                 row.operator(
-                    "my_plugin.switch_image_mode", text="Switch to multiview mode"
+                    "tripo3d.switch_image_mode", text="Switch to multiview mode"
                 )
                 row = box.row()
-                # if scn.image_path == "----":
-                #     split = row.split(factor=0.33)
-                #     col = split.column(align=True)
-                #     col = split.column(align=True)
-                #     row = col.row()
-                #     col = split.column(align=True)
                 row.template_ID_preview(
-                    scn, "preview_image", open="my_plugin.load_image"
+                    scn, "image", open="tripo3d.load_image"
                 )
                 row = box.row()
                 row.label(text="Image Selected: ")
                 row.label(text=scn.image_path)
                 row = box.row()
-                row.enabled = context.scene.image_path
+                row.enabled = len(context.scene.image_path) > 0
             row.operator(
-                "my_plugin.generate_image_model",
+                "tripo3d.generate_image_model",
                 text=f"Generate (cost:{calculate_generation_price(scn, 'image2model')})",
             )
-            if context.scene.image_model_generating:
-                box.label(text="Task Generating...")
-                box.prop(
-                    context.scene, "image_generating_percentage", text="", slider=True
-                )
-            else:
-                box.label(text="No Task Generating")
-            if scn.image_is_importing_model:
-                row = box.row()
-                row.label(text="Import Model...")
 
-            layout.label(text="")
             post_process_box = layout.box()
             row = post_process_box.row(align=True)
             row.alignment = "CENTER"
             row.label(text="Settings")
 
-            row = post_process_box.row()
+            col = post_process_box.column(align=True)
+            row = col.row()
             row.label(text="Model Version")
             row.prop(context.scene, "model_version", text="")
             if scn.model_version.startswith("v2."):
-                row = post_process_box.row()
-                row.prop(scn, "quad", text="Enable quad mesh output")
-                row = post_process_box.row()
-                row.prop(scn, "use_custom_face_limit", text="Use custom face limit")
+                col.prop(scn, "quad", text="Enable quad mesh output")
+                col.prop(scn, "use_custom_face_limit", text="Use custom face limit")
+
                 row = post_process_box.row()
                 row.prop(scn, "face_limit", text="Face Limit")
                 row.enabled = scn.use_custom_face_limit
+
                 row = post_process_box.row()
-                row.prop(scn, "style", text="Style")
                 if scn.multiview_generate_mode:
-                    row.enable = False
+                    row.enabled = False
+                row.prop(scn, "style", text="Style")
 
-            row = post_process_box.row()
-            row.prop(scn, "use_pose_control", text="Enable Pose Control")
-            if scn.use_pose_control:
-                row.operator(ResetPoseSettings.bl_idname, text="Reset Pose Control")
-
-            if scn.use_pose_control:
-                # Dropdown to select T-pose or A-pose
-                row = post_process_box.row()
-                row.prop(scn, "pose_type", text="Pose Type")
-
-                # Slider to adjust head-body height ratio
-                row = post_process_box.row()
-                row.prop(scn, "head_body_height_ratio", text="Head-Body Height Ratio")
-                # Slider to adjust head-body width ratio
-                row = post_process_box.row()
-                row.prop(scn, "head_body_width_ratio", text="Head-Body Width Ratio")
-                # Slider to adjust legs-body height ratio
-                row = post_process_box.row()
-                row.prop(scn, "legs_body_height_ratio", text="Legs-Body Height Ratio")
-                # Slider to adjust arms-body length ratio
-                row = post_process_box.row()
-                row.prop(scn, "arms_body_length_ratio", text="Arms-Body Length Ratio")
-                # Slider to adjust distance between legs
-                row = post_process_box.row()
-                row.prop(scn, "span_of_legs", text="Span of Two Legs")
-
-
-            if sc.model_version.startswith("v2."):
                 row = post_process_box.row()
                 row.prop(
                     scn,
@@ -328,19 +288,10 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                     emboss=False,
                 )
                 if scn.show_advance_settings:
-                    row = post_process_box.row()
-                    row.prop(scn, "texture", text="Texture")
-                    row = post_process_box.row()
-                    row.prop(scn, "pbr", text="PBR")
-                    row = post_process_box.row()
-                    row.prop(scn, "texture_seed", text="Texture Seed")
-                    row = post_process_box.row()
-                    row.prop(scn, "texture_alignment", text="Texture Alignment")
-                    row = post_process_box.row()
-                    row.prop(scn, "texture_quality", text="Texture Quality")
-                    row = post_process_box.row()
-                    row.prop(scn, "auto_size", text="Auto Size")
-                    row = post_process_box.row()
-                    row.prop(scn, "orientation", text="Orientation")
-
-                    # layout.prop(scn, "blendermcp_port")
+                    adv_col = post_process_box.column(align=True)
+                    adv_col.prop(scn, "texture", text="Texture")
+                    adv_col.prop(scn, "pbr", text="PBR")
+                    adv_col.prop(scn, "texture_alignment", text="Texture Alignment")
+                    adv_col.prop(scn, "texture_quality", text="Texture Quality")
+                    adv_col.prop(scn, "auto_size", text="Auto Size")
+                    adv_col.prop(scn, "orientation", text="Orientation")

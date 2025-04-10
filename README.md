@@ -12,17 +12,6 @@ The Tripo 3D Blender Plugin integrates Tripo's AI-powered 3D generation capabili
 - **Multiview-to-Model**: Generate models from multiple perspective images
 - **Real-time Progress Tracking**: Monitor generation progress with a visual progress bar
 
-### Advanced Options
-- **Model Versions**: Support for v1.3, v1.4, v2.0, AND v2.5
-- **Texture Controls**:
-  - Texture quality (standard/detailed)
-  - Texture alignment (original image/geometry)
-  - Texture seed customization
-  - PBR material support
-- **Style Options**: Original, Cartoon, Realistic
-- **Auto-sizing**: Automatic real-world dimension scaling
-- **Face Limit**: Custom polygon count control
-
 ## Installation
 
 ### Requirements
@@ -49,7 +38,7 @@ After installation, the plugin will appear in the Blender interface as shown bel
 
 ### Text to 3D
 1. Enter your text prompt
-2. Select model version (v1.0 or v2.0-20240919)
+2. Select model version
 3. Configure advanced settings (optional):
    - Texture quality
    - PBR materials
@@ -61,36 +50,9 @@ After installation, the plugin will appear in the Blender interface as shown bel
 1. Choose between single image or multiview mode
 2. Upload image(s):
    - Single mode: One reference image
-   - Multiview mode: Front, left, and back views
+   - Multiview mode: Front, left, right, and back views
 3. Configure model settings
 4. Click "Generate"
-
-### Supported File Types
-- JPG/JPEG
-- PNG
-- WebP
-- Maximum file size: 10MB
-
-## Error Handling
-The plugin includes comprehensive error handling for:
-- Network connectivity issues
-- API authentication
-- File validation
-- Generation process monitoring
-
-## Technical Details
-
-### API Integration
-- Automatic retry mechanism with exponential backoff
-- Efficient resource management
-- Progress tracking and status updates
-- Temporary file cleanup
-
-### Performance Features
-- Asynchronous task processing
-- Efficient UI updates
-- File caching
-- Memory management
 
 ## Support and Documentation
 
@@ -104,7 +66,7 @@ This plugin is distributed under the terms of the MIT license - see the LICENSE 
 
 ## Acknowledgments
 
-- [Tripo 3D](https://tripo3d.ai) for the 3D generation API
+- [Tripo 3D](https://www.tripo3d.ai) for the 3D generation API
 - [Poly Haven](https://polyhaven.com) for the 3D assets
 - [blender-mcp](https://github.com/ahujasid/blender-mcp) by [Siddharth Ahuja](https://github.com/ahujasid)
 - Special thanks to our Discord channel member **Zeak6464** for his significant contributions to the plugin code and for assisting in the testing channel. Your support has been invaluable!
