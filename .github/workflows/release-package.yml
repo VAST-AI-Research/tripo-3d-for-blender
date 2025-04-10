@@ -27,12 +27,13 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
 
       - name: Create release directory
-        run: mkdir -p ${{ env.REPO_NAME }}-v${{ env.VERSION }}
+        run: mkdir -p ${{ env.REPO_NAME }}-v${{ env.VERSION }}/tripo3d
 
-      - name: Copy tripo3d files (excluding subfolders)
+      - name: Copy files (excluding subfolders)
         run: |
           # Copy only the files from tripo3d directory (not subdirectories)
           find tripo-python-sdk/tripo3d -maxdepth 1 -type f -exec cp {} ${{ env.REPO_NAME }}-v${{ env.VERSION }}/ \;
+          cp *.py ${{ env.REPO_NAME }}-v${{ env.VERSION }}/
 
       - name: Create ZIP package
         run: |
