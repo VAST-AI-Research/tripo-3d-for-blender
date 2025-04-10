@@ -1,0 +1,46 @@
+name: Release Package
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Get repository name
+        id: repo_name
+        run: echo "REPO_NAME=${GITHUB_REPOSITORY#*/}" >> $GITHUB_ENV
+
+      - name: Get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
+
+      - name: Create release directory
+        run: mkdir -p ${{ env.REPO_NAME }}-v${{ env.VERSION }}
+
+      - name: Copy tripo3d files (excluding subfolders)
+        run: |
+          # Copy only the files from tripo3d directory (not subdirectories)
+          find tripo-python-sdk/tripo3d -maxdepth 1 -type f -exec cp {} ${{ env.REPO_NAME }}-v${{ env.VERSION }}/ \;
+
+      - name: Create ZIP package
+        run: |
+          zip -r ${{ env.REPO_NAME }}-v${{ env.VERSION }}.zip ${{ env.REPO_NAME }}-v${{ env.VERSION }}
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.REPO_NAME }}-v${{ env.VERSION }}.zip
+          name: Release ${{ env.VERSION }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
