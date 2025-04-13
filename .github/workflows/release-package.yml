@@ -32,7 +32,7 @@ jobs:
       - name: Copy files (excluding subfolders)
         run: |
           # Copy only the files from tripo3d directory (not subdirectories)
-          find tripo-python-sdk/tripo3d -maxdepth 1 -type f -exec cp -r {} ${{ env.REPO_NAME }}/tripo3d/ \;
+          find tripo-python-sdk/tripo3d -maxdepth 1 -exec cp -r {} ${{ env.REPO_NAME }}/tripo3d/ \;
           cp *.py ${{ env.REPO_NAME }}/
 
       - name: Create ZIP package
