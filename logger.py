@@ -43,3 +43,10 @@ def get_logger():
         logger.addHandler(ch)
         print("Warning: Could not create log file. Logging to console only.")
     return logger
+
+def close_logger():
+    global logger
+    if logger is not None:
+        logger.handlers.clear()
+        logger = None
+

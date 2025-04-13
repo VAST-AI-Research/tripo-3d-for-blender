@@ -388,6 +388,8 @@ def unregister():
         if hasattr(bpy.types.Scene, prop_name):
             delattr(bpy.types.Scene, prop_name)
 
+    from .logger import close_logger
+    close_logger()
     REGISTERED_PROPERTIES = []
 
 

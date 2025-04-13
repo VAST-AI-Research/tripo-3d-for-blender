@@ -193,7 +193,7 @@ class BlenderMCPServer:
             bpy.ops.object.mode_set(mode='OBJECT')
 
         bpy.ops.object.select_all(action="DESELECT")
-        bpy.ops.import_scene.gltf(filepath=temp_file.name)
+        bpy.ops.import_scene.gltf(filepath=temp_file.name, merge_vertices=True)
         imported_objects = bpy.context.selected_objects
         model_info = []
 
