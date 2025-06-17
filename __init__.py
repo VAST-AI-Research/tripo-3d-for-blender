@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Tripo 3D",
     "author": "VAST",
-    "version": (0, 7, 1),
+    "version": (0, 7, 3),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Tripo 3D",
     "description": "AI-Powered 3D Model Generation Addon",
