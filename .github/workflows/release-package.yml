@@ -27,7 +27,7 @@ jobs:
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_ENV
 
       - name: Create release directory
-        run: mkdir -p ${{ env.REPO_NAME }}/tripo3d
+        run: mkdir -p ${{ env.REPO_NAME }}
 
       - name: Copy files (excluding subfolders)
         run: |
