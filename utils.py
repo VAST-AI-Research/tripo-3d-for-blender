@@ -190,6 +190,7 @@ def generation(context, task_type):
                               input_image=context.scene.front_image)
                 else:
                     task.init(task_id=task_type)
+                    task_id = task_type
                 task_info = await receive_one(client, task_id, context)
                 result = client.download_task_models(task=task_info, output_dir=tempfile.gettempdir())
                 render_image_result = None
@@ -254,7 +255,7 @@ def calculate_generation_price(scene, task_type):
 
     # 获取模型版本
     if scene.model_version.startswith("v2."):
-        if scene.texture:
+        if scene.texture or scene.pbr:
             price += 10
         if scene.texture_quality == "detailed":
             price += 10

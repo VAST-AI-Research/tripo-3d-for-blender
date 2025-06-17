@@ -13,7 +13,7 @@ class TaskPropertyGroup(bpy.types.PropertyGroup):
     render_image: bpy.props.PointerProperty(type=bpy.types.Image)
     running_left_time: bpy.props.FloatProperty(default=-1)
 
-    def init(self, task_id: str, task_type: str = None, input_image: bpy.types.Image=None, prompt: str=""):
+    def init(self, task_id: str, task_type: str="", input_image: bpy.types.Image=None, prompt: str=""):
         if not self.create_time:
             import datetime
             self.create_time = datetime.datetime.now().strftime("%Y/%m/%d %H:%M:%S")
