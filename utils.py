@@ -128,7 +128,7 @@ def generation(context, task_type):
                     prompt = context.scene.text_prompts
                     if context.scene.use_pose_control:
                         prompt += (
-                            f", {context.scene.pose_type}:"
+                            f", {context.scene.pose_type.lower()}:"
                             f"{context.scene.head_body_height_ratio}:"
                             f"{context.scene.head_body_width_ratio}:"
                             f"{context.scene.legs_body_height_ratio}:"

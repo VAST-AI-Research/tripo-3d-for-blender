@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Tripo 3D",
     "author": "VAST",
-    "version": (0, 7, 3),
+    "version": (0, 7, 4),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Tripo 3D",
     "description": "AI-Powered 3D Model Generation Addon",
@@ -26,15 +26,12 @@ def register_custom_properties():
         name="Model Version",
         description="The version of the model you want to use",
         items=[
-            (
-                "v2.5-20250123",
-                "Version 2.5",
-                "2025-01-23 version of the model",
-            ),
+            ("v3.0-20250812", "Version 3.0", "2025-08-12 version of the model"),
+            ("v2.5-20250123", "Version 2.5", "2025-01-23 version of the model"),
             ("v2.0-20240919", "Version 2.0", "2024-09-19 version of the model"),
             ("v1.4-20240625", "Version 1.4", "2024-06-25 version of the model"),
         ],
-        default="v2.5-20250123",
+        default="v3.0-20250812",
     )
     bpy.types.Scene.show_api_key_guide = bpy.props.BoolProperty(
         name="show_api_key_guide", default=False
