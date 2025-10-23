@@ -266,7 +266,7 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
             row = col.row()
             row.label(text="Model Version")
             row.prop(context.scene, "model_version", text="")
-            if scn.model_version.startswith("v2."):
+            if scn.model_version.startswith("v2.") or scn.model_version.startswith("v3."):
                 col.prop(scn, "quad", text="Enable quad mesh output")
                 col.prop(scn, "use_custom_face_limit", text="Use custom face limit")
 
@@ -293,7 +293,8 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                     adv_col.prop(scn, "pbr", text="PBR")
                     adv_col.prop(scn, "texture_alignment", text="Texture Alignment")
                     adv_col.prop(scn, "texture_quality", text="Texture Quality")
-                    adv_col.prop(scn, "geometry_quality", text="Geometry Quality")
+                    if scn.model_version.startswith("v3."):
+                        adv_col.prop(scn, "geometry_quality", text="Geometry Quality")
                     adv_col.prop(scn, "auto_size", text="Auto Size")
                     adv_col.prop(scn, "orientation", text="Orientation")
 
