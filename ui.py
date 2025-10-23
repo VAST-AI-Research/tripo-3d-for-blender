@@ -293,6 +293,7 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
                     adv_col.prop(scn, "pbr", text="PBR")
                     adv_col.prop(scn, "texture_alignment", text="Texture Alignment")
                     adv_col.prop(scn, "texture_quality", text="Texture Quality")
+                    adv_col.prop(scn, "geometry_quality", text="Geometry Quality")
                     adv_col.prop(scn, "auto_size", text="Auto Size")
                     adv_col.prop(scn, "orientation", text="Orientation")
 

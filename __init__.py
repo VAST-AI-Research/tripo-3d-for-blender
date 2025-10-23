@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Tripo 3D",
     "author": "VAST",
-    "version": (0, 7, 5),
+    "version": (0, 7, 6),
     "blender": (3, 0, 0),
     "location": "View3D > Sidebar > Tripo 3D",
     "description": "AI-Powered 3D Model Generation Addon",
@@ -85,7 +85,7 @@ def register_custom_properties():
         description="Limits the number of faces on the output model. If this option is not set, the face limit will be adaptively determined.",
         default=10000,  # Use -1 to indicate not set
         min=1000,
-        max=500000,
+        max=2000000,
         step=1000,
     )
     bpy.types.Scene.quad = bpy.props.BoolProperty(
@@ -138,6 +138,17 @@ def register_custom_properties():
                 "Detailed",
                 "Provides high-resolution textures, resulting in more refined and realistic representation of intricate parts.",
             ),
+        ],
+        default="standard",
+    )
+
+    # Geometry Quality
+    bpy.types.Scene.geometry_quality = bpy.props.EnumProperty(
+        name="Geometry Quality",
+        description="This parameter controls the geometry quality.",
+        items=[
+            ("standard", "Standard", "Standard geometry quality."),
+            ("detailed", "Detailed", "Detailed geometry quality."),
         ],
         default="standard",
     )

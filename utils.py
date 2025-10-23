@@ -143,6 +143,7 @@ def generation(context, task_type):
                         texture=context.scene.texture,
                         pbr=context.scene.pbr,
                         texture_quality=context.scene.texture_quality,
+                        geometry_quality=context.scene.geometry_quality,
                         style=context.scene.style if context.scene.style != "original" else None,
                         auto_size=context.scene.auto_size,
                         quad=context.scene.quad
@@ -158,6 +159,7 @@ def generation(context, task_type):
                         texture=context.scene.texture,
                         pbr=context.scene.pbr,
                         texture_quality=context.scene.texture_quality,
+                        geometry_quality=context.scene.geometry_quality,
                         style=context.scene.style if context.scene.style != "original" else None,
                         auto_size=context.scene.auto_size,
                         quad=context.scene.quad
@@ -259,6 +261,8 @@ def calculate_generation_price(scene, task_type):
             price += 10
         if scene.texture_quality == "detailed":
             price += 10
+        if scene.geometry_quality == "detailed":
+            price += 20
         if scene.quad:
             price += 5
         if scene.style != "original" and not scene.multiview_generate_mode:
