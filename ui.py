@@ -179,7 +179,7 @@ class TRIPOD_PT_TripoPluginMainPanel(bpy.types.Panel):
             row.alignment = "CENTER"
             row.label(text="Image_to_Model")
 
-            if scn.model_version.startswith("v2.") and scn.multiview_generate_mode:
+            if (scn.model_version.startswith("v2.")  or scn.model_version.startswith("v3.")) and scn.multiview_generate_mode:
                 row = box.row()
                 row.operator(
                     "tripo3d.switch_image_mode", text="Switch to single image mode"
